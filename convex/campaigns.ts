@@ -12,6 +12,10 @@ export const create = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
 
+    if (args.dailyLimit !== undefined && args.dailyLimit <= 0) {
+      throw new Error("dailyLimit must be a positive number");
+    }
+
     return await ctx.db.insert("campaigns", {
       userId: identity.tokenIdentifier,
       postUrl: args.postUrl,
@@ -47,6 +51,11 @@ export const getById = internalQuery({
   },
 });
 
+/**
+ * Returns up to 50 active campaigns for a user.
+ * Users are not expected to have more than 50 active campaigns at once.
+ * If they do, campaigns beyond the first 50 will be silently omitted.
+ */
 export const listActiveByUserId = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, { userId }) => {
