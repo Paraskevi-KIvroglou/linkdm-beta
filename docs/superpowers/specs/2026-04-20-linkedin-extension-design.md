@@ -98,7 +98,17 @@ Service workers cannot use the Convex React SDK. The extension communicates via 
 | `/api/extension/campaigns` | GET | Fetch active campaigns for the authenticated user |
 | `/api/extension/dmLog` | POST | Record a DM result (sent / failed / skipped) |
 
-Authentication: the extension passes the user's Convex session token (stored in `chrome.storage.local` after login) as a Bearer token.
+**Authentication — how the extension gets its token:**
+
+1. User logs into the linkdm dashboard (via magic link as normal)
+2. Dashboard Settings page shows a personal **Extension Token** (a long-lived Convex-generated secret tied to their account)
+3. User opens the extension popup → pastes the token → clicks Connect
+4. Extension stores it in `chrome.storage.local`
+5. All subsequent Convex HTTP calls include it as a `Bearer` token in the `Authorization` header
+
+The extension popup shows a simple status: **Connected ✅** or **Not connected — paste your token from the linkdm dashboard.**
+
+Token can be revoked and regenerated from the dashboard Settings page at any time.
 
 ---
 
