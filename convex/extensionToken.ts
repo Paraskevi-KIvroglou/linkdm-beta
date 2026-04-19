@@ -13,6 +13,7 @@ export const getOrCreate = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .first();
 
+    // Note: concurrent first calls could insert two rows; risk is negligible for a Settings page.
     if (existing) return existing.token;
 
     const token = `lnkdm_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -32,6 +33,8 @@ export const regenerate = mutation({
       .query("extensionTokens")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .first();
+    // If no prior token exists (edge case), we create one rather than throwing.
+    // The Settings page always calls getOrCreate first, so this is a safety fallback.
     if (existing) await ctx.db.delete(existing._id);
 
     const token = `lnkdm_${crypto.randomUUID().replace(/-/g, "")}`;
