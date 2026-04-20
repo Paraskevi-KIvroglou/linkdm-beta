@@ -15,6 +15,7 @@ function showConnected() {
   statusEl.className = "status connected";
   statusEl.textContent = "✅ Connected — campaigns are running automatically.";
   tokenInput.style.display = "none";
+  tokenInput.value = ""; // Clear token from DOM after storing
   actionBtn.textContent = "Disconnect";
   actionBtn.className = "danger";
   actionBtn.onclick = disconnect;
@@ -31,20 +32,29 @@ function showDisconnected() {
 
 async function connect() {
   const token = tokenInput.value.trim();
-  if (!token.startsWith("lnkdm_")) {
+  if (!token.startsWith("lnkdm_") || token.length < 30) {
+    statusEl.className = "status disconnected";
     statusEl.textContent =
       "⚠️ Invalid token format. Copy it exactly from your linkdm dashboard.";
     return;
   }
-  await chrome.storage.local.set({ token });
-  showConnected();
+  try {
+    await chrome.storage.local.set({ token });
+    showConnected();
+  } catch {
+    statusEl.className = "status disconnected";
+    statusEl.textContent = "⚠️ Could not save token. Please try again.";
+  }
 }
 
 async function disconnect() {
-  await chrome.storage.local.remove(["token", "dmedProfiles", "nextSendAt"]);
+  try {
+    await chrome.storage.local.remove(["token", "dmedProfiles", "nextSendAt"]);
+  } catch {
+    // Storage removal failed — clear local UI state anyway
+  }
   tokenInput.value = "";
   showDisconnected();
 }
 
-actionBtn.onclick = connect;
 init();

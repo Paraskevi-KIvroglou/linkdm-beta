@@ -52,13 +52,14 @@
 </head>
 <body>
   <h2>linkdm</h2>
-  <div id="status" class="status disconnected">
+  <div id="status" class="status disconnected" aria-live="polite" role="status">
     ⚠️ Not connected — paste your token below.
   </div>
-  <input id="token-input" type="text" placeholder="lnkdm_..." />
-  <button id="action-btn">Connect</button>
+  <input id="token-input" type="password" placeholder="lnkdm_..." />
+  <button id="action-btn" type="button">Connect</button>
   <p class="hint">
     Get your token from
+    <!-- TODO: Update to production URL before release -->
     <a href="https://localhost:3000/dashboard/settings" target="_blank">
       linkdm dashboard → Settings
     </a>.
