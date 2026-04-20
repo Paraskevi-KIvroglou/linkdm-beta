@@ -1,5 +1,5 @@
 // linkdm service worker
-// Runs every 20s via chrome.alarms. Fetches active campaigns from Convex,
+// Runs every 30s via chrome.alarms. Fetches active campaigns from Convex,
 // picks the next eligible commenter, and tells the content script to send the DM.
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -68,6 +68,10 @@ async function runCampaignLoop() {
       console.error("[linkdm] Token rejected by Convex — check your token in the popup");
       return;
     }
+    if (!res.ok) {
+      console.error("[linkdm] Campaigns fetch failed:", res.status);
+      return;
+    }
     const body = await res.json();
     campaigns = body.campaigns;
   } catch (err) {
@@ -99,7 +103,9 @@ async function runCampaignLoop() {
       });
     } catch (err) {
       // Content script not available (page still loading, or non-feed LinkedIn page)
-      console.warn("[linkdm] Could not reach content script:", err.message);
+      // Return (not continue) — all campaigns share the same LinkedIn tab.
+      // If the content script is unreachable for one, it's unreachable for all.
+      console.warn("[linkdm] Could not reach content script:", err?.message ?? String(err));
       return;
     }
 
@@ -239,6 +245,7 @@ function showNotification(id, { title, message }) {
 
 // Clicking any notification opens the linkdm dashboard
 chrome.notifications.onClicked.addListener((notificationId) => {
+  // TODO: Update to production URL before release
   chrome.tabs.create({ url: "http://localhost:3000/dashboard" });
   chrome.notifications.clear(notificationId);
 });
