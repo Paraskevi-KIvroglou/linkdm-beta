@@ -170,8 +170,8 @@ async function runCampaignLoop() {
         message: campaign.messageTemplate,
       });
     } catch (err) {
-      console.error("[linkdm] Failed to send DM:", err.message);
-      dmResult = { success: false, error: err.message };
+      console.error("[linkdm] Failed to send DM:", err?.message ?? String(err));
+      dmResult = { success: false, error: err?.message ?? String(err) };
     }
 
     const status = dmResult?.success ? "sent" : "failed";
