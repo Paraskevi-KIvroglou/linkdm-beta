@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ActionCtx } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import { auth } from "./auth";
 
 const http = httpRouter();
@@ -125,7 +126,8 @@ http.route({
     }
 
     // Verify campaign belongs to this user
-    const campaign = await ctx.runQuery(internal.campaigns.getById, { campaignId });
+    const typedCampaignId = campaignId as Id<"campaigns">;
+    const campaign = await ctx.runQuery(internal.campaigns.getById, { campaignId: typedCampaignId });
     if (!campaign || campaign.userId !== userId) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
@@ -134,11 +136,11 @@ http.route({
     }
 
     await ctx.runMutation(internal.dmLog.logDm, {
-      campaignId,
+      campaignId: typedCampaignId,
       profileId,
       profileName,
       profileUrl,
-      status,
+      status: status as "sent" | "failed" | "skipped",
       // Fix 5: Cap errorMessage length
       errorMessage: typeof errorMessage === "string" ? errorMessage.slice(0, 500) : undefined,
     });
