@@ -95,3 +95,26 @@ test("listByCampaign returns all dmLog entries for a campaign", async () => {
   expect(entries).toHaveLength(1);
   expect(entries[0].profileName).toBe("Alice");
 });
+
+test("getTodayCount returns correct count for multiple sent DMs", async () => {
+  const t = convexTest(schema, modules);
+  const campaignId = await t
+    .withIdentity({ tokenIdentifier: "user1" })
+    .mutation(api.campaigns.create, {
+      postUrl: "https://linkedin.com/feed/update/urn:li:activity:123",
+      messageTemplate: "Hey!",
+    });
+
+  for (let i = 1; i <= 3; i++) {
+    await t.mutation(internal.dmLog.logDm, {
+      campaignId,
+      profileId: `urn:li:member:${i}`,
+      profileName: `Person ${i}`,
+      profileUrl: `https://linkedin.com/in/person${i}`,
+      status: "sent",
+    });
+  }
+
+  const count = await t.query(internal.dmLog.getTodayCount, { campaignId });
+  expect(count).toBe(3);
+});
