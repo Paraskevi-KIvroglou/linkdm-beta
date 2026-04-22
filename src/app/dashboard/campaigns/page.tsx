@@ -19,6 +19,7 @@ export default function CampaignsPage() {
   const [creating, setCreating] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<{ campaignId: string; message: string } | null>(null);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -48,10 +49,16 @@ export default function CampaignsPage() {
     current: "active" | "paused"
   ) {
     setToggling(campaignId);
+    setToggleError(null);
     try {
       await updateStatus({
         campaignId,
         status: current === "active" ? "paused" : "active",
+      });
+    } catch (err) {
+      setToggleError({
+        campaignId,
+        message: err instanceof Error ? err.message : "Failed to update campaign",
       });
     } finally {
       setToggling(null);
@@ -201,21 +208,26 @@ export default function CampaignsPage() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleToggle(campaign._id, campaign.status)}
-                    disabled={toggling === campaign._id}
-                    className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 ${
-                      campaign.status === "active"
-                        ? "bg-amber-100 hover:bg-amber-200 text-amber-700"
-                        : "bg-green-100 hover:bg-green-200 text-green-700"
-                    }`}
-                  >
-                    {toggling === campaign._id
-                      ? "..."
-                      : campaign.status === "active"
-                      ? "Pause"
-                      : "Resume"}
-                  </button>
+                  <div className="shrink-0 flex flex-col items-end gap-1">
+                    <button
+                      onClick={() => handleToggle(campaign._id, campaign.status)}
+                      disabled={toggling === campaign._id}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                        campaign.status === "active"
+                          ? "bg-amber-100 hover:bg-amber-200 text-amber-700"
+                          : "bg-green-100 hover:bg-green-200 text-green-700"
+                      }`}
+                    >
+                      {toggling === campaign._id
+                        ? "..."
+                        : campaign.status === "active"
+                        ? "Pause"
+                        : "Resume"}
+                    </button>
+                    {toggleError?.campaignId === campaign._id && (
+                      <p className="text-xs text-red-500">{toggleError.message}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
