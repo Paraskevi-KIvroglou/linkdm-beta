@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://*.convex.site/*"
+    "https://*.convex.site/*",
+    "https://utmost-lemur-208.eu-west-1.convex.site/*"
   ],
   "background": {
     "service_worker": "background.js"
