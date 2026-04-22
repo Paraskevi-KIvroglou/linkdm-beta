@@ -1,15 +1,18 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useState } from "react";
 
 export default function DashboardPage() {
   const { signOut } = useAuthActions();
   const getOrCreateToken = useMutation(api.extensionToken.getOrCreate);
+  const approveUser = useMutation(api.waitlist.approveUser);
+  const pending = useQuery(api.waitlist.listPending);
   const [token, setToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [approving, setApproving] = useState<string | null>(null);
 
   async function handleGetToken() {
     const t = await getOrCreateToken();
@@ -21,6 +24,15 @@ export default function DashboardPage() {
     await navigator.clipboard.writeText(token);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleApprove(email: string) {
+    setApproving(email);
+    try {
+      await approveUser({ email });
+    } finally {
+      setApproving(null);
+    }
   }
 
   return (
@@ -36,7 +48,35 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Temporary token section — will move to Settings in Plan 3 */}
+        {/* Waitlist approvals */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">Waitlist</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Approve users to send them a magic link email automatically.
+          </p>
+          {pending === undefined ? (
+            <p className="text-sm text-gray-400">Loading...</p>
+          ) : pending.length === 0 ? (
+            <p className="text-sm text-gray-400">No pending requests.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {pending.map((entry) => (
+                <li key={entry._id} className="flex items-center justify-between py-3">
+                  <span className="text-sm text-gray-800">{entry.email}</span>
+                  <button
+                    onClick={() => handleApprove(entry.email)}
+                    disabled={approving === entry.email}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    {approving === entry.email ? "Approving..." : "Approve"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Extension token */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-1">Extension Token</h2>
           <p className="text-xs text-gray-500 mb-4">
