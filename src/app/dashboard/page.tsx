@@ -4,6 +4,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useState } from "react";
+import Link from "next/link";
 
 export default function DashboardPage() {
   const { signOut } = useAuthActions();
@@ -72,6 +73,26 @@ export default function DashboardPage() {
           >
             Sign out
           </button>
+        </div>
+
+        {/* Nav cards */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <Link
+            href="/dashboard/campaigns"
+            className="bg-white rounded-xl border border-gray-200 p-5 hover:border-blue-300 hover:shadow-sm transition-all group"
+          >
+            <div className="text-xl mb-1">📋</div>
+            <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-600">Campaigns</div>
+            <div className="text-xs text-gray-500 mt-0.5">Create and manage your DM campaigns</div>
+          </Link>
+          <Link
+            href="/dashboard/activity"
+            className="bg-white rounded-xl border border-gray-200 p-5 hover:border-blue-300 hover:shadow-sm transition-all group"
+          >
+            <div className="text-xl mb-1">⚡</div>
+            <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-600">Activity</div>
+            <div className="text-xs text-gray-500 mt-0.5">Live feed of DMs sent by the extension</div>
+          </Link>
         </div>
 
         {/* Waitlist approvals */}
@@ -153,9 +174,6 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-          <p className="text-gray-500 text-sm">Campaigns coming soon.</p>
-        </div>
       </div>
     </main>
   );
