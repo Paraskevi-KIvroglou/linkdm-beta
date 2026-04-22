@@ -49,31 +49,21 @@ function parseCommenters(data) {
     }
   }
 
-  // Extract unique commenters — try multiple actor key patterns LinkedIn uses
-  const MEMBER_ACTOR_KEYS = [
-    "com.linkedin.voyager.feed.MemberActor",
-    "com.linkedin.voyager.feed.render.MemberActor",
-  ];
-
   const seen = new Set();
   const commenters = [];
   for (const item of included) {
     if (!item.$type?.includes("Comment")) continue;
 
-    // Try each known actor key
-    let profileUrn = null;
-    for (const key of MEMBER_ACTOR_KEYS) {
-      const actor = item.commenter?.[key];
-      if (actor?.miniProfile) {
-        profileUrn = actor.miniProfile;
-        break;
-      }
-    }
-
-    // Fallback: some responses nest the actor differently
-    if (!profileUrn && item.commenterProfileId) {
-      profileUrn = item.commenterProfileId;
-    }
+    // LinkedIn uses different shapes depending on post type and API version.
+    // Priority order (most common first):
+    // 1. New style: commenter["*miniProfile"] = "urn:li:fs_miniProfile:..." (company page posts)
+    // 2. Old style: commenter["com.linkedin.voyager.feed.MemberActor"].miniProfile
+    // 3. Old style variant: commenter["com.linkedin.voyager.feed.render.MemberActor"].miniProfile
+    let profileUrn =
+      item.commenter?.["*miniProfile"] ??
+      item.commenter?.["com.linkedin.voyager.feed.MemberActor"]?.miniProfile ??
+      item.commenter?.["com.linkedin.voyager.feed.render.MemberActor"]?.miniProfile ??
+      null;
 
     if (!profileUrn || seen.has(profileUrn)) continue;
     const profile = profilesByUrn[profileUrn];
