@@ -9,12 +9,14 @@ export default function DashboardPage() {
   const { signOut } = useAuthActions();
   const getOrCreateToken = useMutation(api.extensionToken.getOrCreate);
   const regenerateToken = useMutation(api.extensionToken.regenerate);
+  const revokeToken = useMutation(api.extensionToken.revoke);
   const approveUser = useMutation(api.waitlist.approveUser);
   const pending = useQuery(api.waitlist.listPending);
   const [token, setToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [revoking, setRevoking] = useState(false);
 
   async function handleGetToken() {
     const t = await getOrCreateToken();
@@ -36,6 +38,17 @@ export default function DashboardPage() {
       setToken(t);
     } finally {
       setRegenerating(false);
+    }
+  }
+
+  async function handleRevoke() {
+    if (!confirm("This will permanently delete your token. The extension will stop working until you create a new one. Continue?")) return;
+    setRevoking(true);
+    try {
+      await revokeToken();
+      setToken(null);
+    } finally {
+      setRevoking(false);
     }
   }
 
@@ -113,13 +126,22 @@ export default function DashboardPage() {
                   {copied ? "Copied!" : "Copy"}
                 </button>
               </div>
-              <button
-                onClick={handleRegenerate}
-                disabled={regenerating}
-                className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
-              >
-                {regenerating ? "Regenerating..." : "Regenerate token (invalidates current)"}
-              </button>
+              <div className="flex gap-4">
+                <button
+                  onClick={handleRegenerate}
+                  disabled={regenerating || revoking}
+                  className="text-xs text-amber-600 hover:text-amber-800 disabled:opacity-50 transition-colors"
+                >
+                  {regenerating ? "Regenerating..." : "Regenerate token"}
+                </button>
+                <button
+                  onClick={handleRevoke}
+                  disabled={revoking || regenerating}
+                  className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
+                >
+                  {revoking ? "Revoking..." : "Revoke token"}
+                </button>
+              </div>
             </div>
           ) : (
             <button

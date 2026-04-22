@@ -43,6 +43,22 @@ export const regenerate = mutation({
   },
 });
 
+export const revoke = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const userId = identity.tokenIdentifier;
+
+    const existing = await ctx.db
+      .query("extensionTokens")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first();
+
+    if (existing) await ctx.db.delete(existing._id);
+  },
+});
+
 export const getUserIdByToken = internalQuery({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
