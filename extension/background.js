@@ -245,8 +245,7 @@ function showNotification(id, { title, message }) {
 
 // Clicking any notification opens the linkdm dashboard
 chrome.notifications.onClicked.addListener((notificationId) => {
-  // TODO: Update to production URL before release
-  chrome.tabs.create({ url: "http://localhost:3000/dashboard" });
+  chrome.tabs.create({ url: "https://beta-login-tawny.vercel.app/dashboard" });
   chrome.notifications.clear(notificationId);
 });
 
