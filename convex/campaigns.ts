@@ -1,4 +1,4 @@
-import { mutation, internalQuery } from "./_generated/server";
+import { mutation, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 export const create = mutation({
@@ -65,5 +65,37 @@ export const listActiveByUserId = internalQuery({
         q.eq("userId", userId).eq("status", "active")
       )
       .take(50);
+  },
+});
+
+export const listByUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    const userId = identity.tokenIdentifier;
+
+    const campaigns = await ctx.db
+      .query("campaigns")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const now = Date.now();
+    const startOfDay = now - (now % 86_400_000);
+
+    return await Promise.all(
+      campaigns.map(async (campaign) => {
+        const sentToday = await ctx.db
+          .query("dmLog")
+          .withIndex("by_campaignId_and_status_and_sentAt", (q) =>
+            q
+              .eq("campaignId", campaign._id)
+              .eq("status", "sent")
+              .gte("sentAt", startOfDay)
+          )
+          .collect();
+        return { ...campaign, todayCount: sentToday.length };
+      })
+    );
   },
 });

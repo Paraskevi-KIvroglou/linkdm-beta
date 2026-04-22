@@ -1,4 +1,4 @@
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const logDm = internalMutation({
@@ -70,5 +70,40 @@ export const listByCampaign = internalQuery({
         q.eq("campaignId", campaignId)
       )
       .take(100);
+  },
+});
+
+export const listRecentByUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    const userId = identity.tokenIdentifier;
+
+    // Get all campaign IDs for this user
+    const campaigns = await ctx.db
+      .query("campaigns")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const campaignIds = new Set(campaigns.map((c) => c._id));
+
+    // Fetch recent logs for each campaign and merge
+    const allLogs = await Promise.all(
+      [...campaignIds].map((campaignId) =>
+        ctx.db
+          .query("dmLog")
+          .withIndex("by_campaignId_and_profileId", (q) =>
+            q.eq("campaignId", campaignId)
+          )
+          .order("desc")
+          .take(50)
+      )
+    );
+
+    return allLogs
+      .flat()
+      .sort((a, b) => b.sentAt - a.sentAt)
+      .slice(0, 50);
   },
 });
