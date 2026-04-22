@@ -200,10 +200,13 @@ async function runCampaignLoop() {
       console.error("[linkdm] Failed to log DM to Convex:", err);
     }
 
-    // Update local deduplication cache
-    if (!dmedProfiles[campaign._id]) dmedProfiles[campaign._id] = [];
-    dmedProfiles[campaign._id].push(next.profileId);
-    await chrome.storage.local.set({ dmedProfiles });
+    // Only mark as done if the DM was actually sent.
+    // Failed sends are NOT cached — they will be retried on the next tick.
+    if (status === "sent") {
+      if (!dmedProfiles[campaign._id]) dmedProfiles[campaign._id] = [];
+      dmedProfiles[campaign._id].push(next.profileId);
+      await chrome.storage.local.set({ dmedProfiles });
+    }
 
     // Schedule next DM: random 30–90 second delay
     const delayMs = 30_000 + Math.floor(Math.random() * 60_000);

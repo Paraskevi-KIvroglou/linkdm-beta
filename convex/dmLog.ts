@@ -23,20 +23,21 @@ export const logDm = internalMutation({
 });
 
 /**
- * Returns true if this profile has any dmLog entry for this campaign,
- * regardless of status (sent, failed, or skipped). Failed attempts are
- * not retried — once attempted, a profile is permanently skipped.
+ * Returns true only if this profile has a "sent" dmLog entry for this campaign.
+ * Failed entries are ignored so the DM will be retried on the next cycle.
+ * Skipped entries (keyword filter) are also ignored — skipping is handled
+ * locally in the extension and does not permanently exclude a profile.
  */
 export const hasBeenDmd = internalQuery({
   args: { campaignId: v.id("campaigns"), profileId: v.string() },
   handler: async (ctx, { campaignId, profileId }) => {
-    const entry = await ctx.db
+    const entries = await ctx.db
       .query("dmLog")
       .withIndex("by_campaignId_and_profileId", (q) =>
         q.eq("campaignId", campaignId).eq("profileId", profileId)
       )
-      .first();
-    return entry !== null;
+      .collect();
+    return entries.some((e) => e.status === "sent");
   },
 });
 
