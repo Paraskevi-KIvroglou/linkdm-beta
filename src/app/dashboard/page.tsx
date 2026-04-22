@@ -8,11 +8,13 @@ import { useState } from "react";
 export default function DashboardPage() {
   const { signOut } = useAuthActions();
   const getOrCreateToken = useMutation(api.extensionToken.getOrCreate);
+  const regenerateToken = useMutation(api.extensionToken.regenerate);
   const approveUser = useMutation(api.waitlist.approveUser);
   const pending = useQuery(api.waitlist.listPending);
   const [token, setToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   async function handleGetToken() {
     const t = await getOrCreateToken();
@@ -24,6 +26,17 @@ export default function DashboardPage() {
     await navigator.clipboard.writeText(token);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleRegenerate() {
+    if (!confirm("This will invalidate your current token. The extension will disconnect until you paste the new token. Continue?")) return;
+    setRegenerating(true);
+    try {
+      const t = await regenerateToken();
+      setToken(t);
+    } finally {
+      setRegenerating(false);
+    }
   }
 
   async function handleApprove(email: string) {
@@ -78,20 +91,34 @@ export default function DashboardPage() {
 
         {/* Extension token */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-1">Extension Token</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-semibold text-gray-700">Extension Token</h2>
+            {token && (
+              <span className="text-xs text-green-600 font-medium">● Connected</span>
+            )}
+          </div>
           <p className="text-xs text-gray-500 mb-4">
             Paste this into the linkdm Chrome extension popup to connect it to your account.
           </p>
           {token ? (
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-gray-800 break-all">
-                {token}
-              </code>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono text-gray-800 break-all">
+                  {token}
+                </code>
+                <button
+                  onClick={handleCopy}
+                  className="shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
               <button
-                onClick={handleCopy}
-                className="shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
               >
-                {copied ? "Copied!" : "Copy"}
+                {regenerating ? "Regenerating..." : "Regenerate token (invalidates current)"}
               </button>
             </div>
           ) : (
@@ -105,7 +132,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-          <p className="text-gray-500 text-sm">Welcome to the beta! Campaigns coming soon.</p>
+          <p className="text-gray-500 text-sm">Campaigns coming soon.</p>
         </div>
       </div>
     </main>
