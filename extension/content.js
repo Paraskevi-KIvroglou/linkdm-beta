@@ -111,7 +111,9 @@ function parseCommenters(data) {
     seen.add(profileUrn);
     commenters.push({
       ...profile,
-      commentText: item.commentary?.text || "",
+      // LinkedIn uses different text fields depending on API version/post type.
+      // commentV2.text is the most reliable; comment.values[0].value is the fallback.
+      commentText: item.commentV2?.text || item.comment?.values?.[0]?.value || item.commentary?.text || "",
       commentUrn: extractCommentReplyUrn(item.entityUrn),
     });
   }
