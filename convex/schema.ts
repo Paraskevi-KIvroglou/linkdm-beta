@@ -27,6 +27,7 @@ export default defineSchema({
     dailyLimit: v.number(),
     status: v.union(v.literal("active"), v.literal("paused")),
     postType: v.optional(v.union(v.literal("personal"), v.literal("company"))),
+    replyTemplate: v.optional(v.string()),
   })
     .index("by_userId", ["userId"])
     .index("by_userId_and_status", ["userId", "status"]),

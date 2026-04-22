@@ -208,6 +208,24 @@ async function runCampaignLoop() {
       await chrome.storage.local.set({ dmedProfiles });
     }
 
+    // Reply to the comment if a reply template is configured
+    if (status === "sent" && campaign.replyTemplate && next.commentUrn) {
+      try {
+        const replyResult = await chrome.tabs.sendMessage(linkedinTab.id, {
+          type: "REPLY_TO_COMMENT",
+          commentUrn: next.commentUrn,
+          message: campaign.replyTemplate,
+        });
+        if (replyResult?.success) {
+          console.log(`[linkdm] Comment reply sent for ${next.profileName}`);
+        } else {
+          console.warn(`[linkdm] Comment reply failed for ${next.profileName}:`, replyResult?.error);
+        }
+      } catch (err) {
+        console.warn("[linkdm] Could not send comment reply:", err?.message ?? String(err));
+      }
+    }
+
     // Schedule next DM: random 30–90 second delay
     const delayMs = 30_000 + Math.floor(Math.random() * 60_000);
     await chrome.storage.local.set({ nextSendAt: Date.now() + delayMs });

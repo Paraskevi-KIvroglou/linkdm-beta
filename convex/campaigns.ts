@@ -8,6 +8,7 @@ export const create = mutation({
     keywordFilter: v.optional(v.string()),
     dailyLimit: v.optional(v.number()),
     postType: v.optional(v.union(v.literal("personal"), v.literal("company"))),
+    replyTemplate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -25,6 +26,7 @@ export const create = mutation({
       dailyLimit: args.dailyLimit ?? 20,
       status: "active",
       postType: args.postType ?? "personal",
+      replyTemplate: args.replyTemplate,
     });
   },
 });
@@ -99,5 +101,19 @@ export const listByUser = query({
         return { ...campaign, todayCount: sentToday.length };
       })
     );
+  },
+});
+
+// Temporary debug — remove after diagnosing the userId mismatch
+export const debugMyUserId = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { error: "not authenticated" };
+    return {
+      tokenIdentifier: identity.tokenIdentifier,
+      subject: identity.subject,
+      email: identity.email,
+    };
   },
 });

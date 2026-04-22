@@ -16,13 +16,53 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendDm(message.profileId, message.message).then(sendResponse);
     return true;
   }
+  if (message.type === "REPLY_TO_COMMENT") {
+    replyToComment(message.commentUrn, message.message).then(sendResponse);
+    return true;
+  }
 });
+
+// ── Module-level cache ────────────────────────────────────────────────────────
+let cachedMyProfileUrn = null;
 
 // ── CSRF token ────────────────────────────────────────────────────────────────
 function getCsrfToken() {
   // LinkedIn stores the CSRF token in the JSESSIONID cookie (not HttpOnly)
   const match = document.cookie.match(/JSESSIONID="?([^";]+)"?/);
   return match ? match[1] : null;
+}
+
+// ── Comment reply URN extraction ──────────────────────────────────────────────
+function extractCommentReplyUrn(entityUrn) {
+  // entityUrn: "urn:li:fs_objectComment:(COMMENT_ID,ugcPost:POST_ID)"
+  const match = entityUrn?.match(/urn:li:fs_objectComment:\((\d+),(.*)\)/);
+  if (!match) return null;
+  const [, commentId, postUrn] = match;
+  return `urn:li:comment:(${postUrn},${commentId})`;
+}
+
+// ── Get own profile URN ───────────────────────────────────────────────────────
+async function getMyProfileUrn() {
+  if (cachedMyProfileUrn) return cachedMyProfileUrn;
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) return null;
+  try {
+    const res = await fetch("https://www.linkedin.com/voyager/api/me", {
+      credentials: "include",
+      headers: {
+        "csrf-token": csrfToken,
+        "x-restli-protocol-version": "2.0.0",
+        accept: "application/vnd.linkedin.normalized+json+2.1",
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const profile = (data.included || []).find(i => i.$type?.includes("MiniProfile"));
+    cachedMyProfileUrn = profile?.objectUrn ?? null;
+    return cachedMyProfileUrn;
+  } catch {
+    return null;
+  }
 }
 
 // ── Post URN extraction ───────────────────────────────────────────────────────
@@ -69,7 +109,11 @@ function parseCommenters(data) {
     const profile = profilesByUrn[profileUrn];
     if (!profile) continue;
     seen.add(profileUrn);
-    commenters.push({ ...profile, commentText: item.commentary?.text || "" });
+    commenters.push({
+      ...profile,
+      commentText: item.commentary?.text || "",
+      commentUrn: extractCommentReplyUrn(item.entityUrn),
+    });
   }
 
   console.log(`[linkdm] Parsed ${commenters.length} commenters from ${included.length} included items`);
@@ -154,6 +198,51 @@ async function sendDm(profileId, message) {
     if (!res.ok) return { success: false, error: `HTTP_${res.status}` };
 
     console.log(`[linkdm] DM sent to ${profileId}`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ── Reply to comment via Voyager feed API ─────────────────────────────────────
+async function replyToComment(commentUrn, message) {
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) return { success: false, error: "NO_CSRF_TOKEN" };
+
+  const actorUrn = await getMyProfileUrn();
+  if (!actorUrn) return { success: false, error: "COULD_NOT_GET_PROFILE_URN" };
+
+  if (!commentUrn) return { success: false, error: "NO_COMMENT_URN" };
+
+  try {
+    const res = await fetch(
+      "https://www.linkedin.com/voyager/api/feed/comments",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "csrf-token": csrfToken,
+          "x-restli-protocol-version": "2.0.0",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          actor: actorUrn,
+          message: {
+            attributes: [],
+            text: message,
+          },
+          parentComment: commentUrn,
+        }),
+      }
+    );
+
+    if (res.status === 401) return { success: false, error: "SESSION_EXPIRED" };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { success: false, error: `HTTP_${res.status}: ${body.slice(0, 200)}` };
+    }
+
+    console.log(`[linkdm] Comment reply sent on ${commentUrn}`);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };

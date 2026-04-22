@@ -17,6 +17,7 @@ export default function CampaignsPage() {
   const [keywordFilter, setKeywordFilter] = useState("");
   const [dailyLimit, setDailyLimit] = useState("20");
   const [postType, setPostType] = useState<"personal" | "company">("personal");
+  const [replyTemplate, setReplyTemplate] = useState("");
   const [creating, setCreating] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export default function CampaignsPage() {
         keywordFilter: keywordFilter.trim() || undefined,
         dailyLimit: parseInt(dailyLimit, 10),
         postType,
+        replyTemplate: replyTemplate.trim() || undefined,
       });
       setPostUrl("");
       setMessageTemplate("");
@@ -40,6 +42,7 @@ export default function CampaignsPage() {
       setDailyLimit("20");
       setShowForm(false);
       setPostType("personal");
+      setReplyTemplate("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create campaign");
     } finally {
@@ -146,6 +149,19 @@ export default function CampaignsPage() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Reply to comment <span className="text-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  value={replyTemplate}
+                  onChange={(e) => setReplyTemplate(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Thanks for engaging! I sent you a DM 📩"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+                <p className="text-xs text-gray-400 mt-1">If set, the extension will reply to the commenter's post after sending the DM</p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -240,6 +256,11 @@ export default function CampaignsPage() {
                     {campaign.keywordFilter && (
                       <span className="inline-block mt-2 text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5">
                         keyword: {campaign.keywordFilter}
+                      </span>
+                    )}
+                    {campaign.replyTemplate && (
+                      <span className="inline-block mt-2 text-xs bg-blue-50 text-blue-600 rounded px-2 py-0.5">
+                        💬 auto-reply
                       </span>
                     )}
                   </div>
