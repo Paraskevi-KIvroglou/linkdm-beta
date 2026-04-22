@@ -7,6 +7,7 @@ export const create = mutation({
     messageTemplate: v.string(),
     keywordFilter: v.optional(v.string()),
     dailyLimit: v.optional(v.number()),
+    postType: v.optional(v.union(v.literal("personal"), v.literal("company"))),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -23,6 +24,7 @@ export const create = mutation({
       keywordFilter: args.keywordFilter,
       dailyLimit: args.dailyLimit ?? 20,
       status: "active",
+      postType: args.postType ?? "personal",
     });
   },
 });

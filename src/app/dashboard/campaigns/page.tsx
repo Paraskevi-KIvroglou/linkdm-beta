@@ -16,6 +16,7 @@ export default function CampaignsPage() {
   const [messageTemplate, setMessageTemplate] = useState("");
   const [keywordFilter, setKeywordFilter] = useState("");
   const [dailyLimit, setDailyLimit] = useState("20");
+  const [postType, setPostType] = useState<"personal" | "company">("personal");
   const [creating, setCreating] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,12 +32,14 @@ export default function CampaignsPage() {
         messageTemplate: messageTemplate.trim(),
         keywordFilter: keywordFilter.trim() || undefined,
         dailyLimit: parseInt(dailyLimit, 10),
+        postType,
       });
       setPostUrl("");
       setMessageTemplate("");
       setKeywordFilter("");
       setDailyLimit("20");
       setShowForm(false);
+      setPostType("personal");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create campaign");
     } finally {
@@ -88,6 +91,35 @@ export default function CampaignsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
             <h2 className="text-sm font-semibold text-gray-700 mb-4">New Campaign</h2>
             <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  Post type
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPostType("personal")}
+                    className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                      postType === "personal"
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : "bg-white border-gray-300 text-gray-600 hover:border-gray-400"
+                    }`}
+                  >
+                    👤 Personal post
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPostType("company")}
+                    className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                      postType === "company"
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : "bg-white border-gray-300 text-gray-600 hover:border-gray-400"
+                    }`}
+                  >
+                    🏢 Company page
+                  </button>
+                </div>
+              </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   LinkedIn post URL <span className="text-red-500">*</span>
@@ -189,6 +221,9 @@ export default function CampaignsPage() {
                       <span className="text-xs text-gray-400">·</span>
                       <span className="text-xs text-gray-500">
                         {campaign.todayCount}/{campaign.dailyLimit} DMs today
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {campaign.postType === "company" ? "🏢 Company page" : "👤 Personal"}
                       </span>
                     </div>
                     <a

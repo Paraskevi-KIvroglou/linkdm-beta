@@ -49,21 +49,40 @@ function parseCommenters(data) {
     }
   }
 
-  // Extract unique commenters from Comment elements
+  // Extract unique commenters — try multiple actor key patterns LinkedIn uses
+  const MEMBER_ACTOR_KEYS = [
+    "com.linkedin.voyager.feed.MemberActor",
+    "com.linkedin.voyager.feed.render.MemberActor",
+  ];
+
   const seen = new Set();
   const commenters = [];
   for (const item of included) {
     if (!item.$type?.includes("Comment")) continue;
-    const memberActor =
-      item.commenter?.["com.linkedin.voyager.feed.MemberActor"];
-    if (!memberActor) continue;
-    const profileUrn = memberActor.miniProfile;
+
+    // Try each known actor key
+    let profileUrn = null;
+    for (const key of MEMBER_ACTOR_KEYS) {
+      const actor = item.commenter?.[key];
+      if (actor?.miniProfile) {
+        profileUrn = actor.miniProfile;
+        break;
+      }
+    }
+
+    // Fallback: some responses nest the actor differently
+    if (!profileUrn && item.commenterProfileId) {
+      profileUrn = item.commenterProfileId;
+    }
+
     if (!profileUrn || seen.has(profileUrn)) continue;
     const profile = profilesByUrn[profileUrn];
     if (!profile) continue;
     seen.add(profileUrn);
     commenters.push({ ...profile, commentText: item.commentary?.text || "" });
   }
+
+  console.log(`[linkdm] Parsed ${commenters.length} commenters from ${included.length} included items`);
   return commenters;
 }
 
@@ -90,11 +109,19 @@ async function fetchCommenters(postUrl) {
     );
 
     if (res.status === 401) return { error: "SESSION_EXPIRED" };
+    if (res.status === 403) return { error: "FORBIDDEN_check_post_visibility" };
     if (!res.ok) return { error: `HTTP_${res.status}` };
 
     const data = await res.json();
     const commenters = parseCommenters(data);
-    console.log(`[linkdm] Fetched ${commenters.length} commenters for post`);
+
+    if (commenters.length === 0 && (data.included || []).length > 0) {
+      // Log a sample of the raw data so we can fix the parser
+      console.warn("[linkdm] Got included items but parsed 0 commenters. Sample:",
+        JSON.stringify((data.included || []).slice(0, 2)));
+    }
+
+    console.log(`[linkdm] Fetched ${commenters.length} commenters for ${postUrn}`);
     return { commenters };
   } catch (err) {
     return { error: err.message };
