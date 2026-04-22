@@ -1,5 +1,6 @@
 import { mutation, query, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 export const create = mutation({
   args: {
@@ -11,15 +12,15 @@ export const create = mutation({
     replyTemplate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
 
     if (args.dailyLimit !== undefined && args.dailyLimit <= 0) {
       throw new Error("dailyLimit must be a positive number");
     }
 
     return await ctx.db.insert("campaigns", {
-      userId: identity.tokenIdentifier,
+      userId,
       postUrl: args.postUrl,
       messageTemplate: args.messageTemplate,
       keywordFilter: args.keywordFilter,
@@ -37,12 +38,12 @@ export const updateStatus = mutation({
     status: v.union(v.literal("active"), v.literal("paused")),
   },
   handler: async (ctx, { campaignId, status }) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Not authenticated");
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
 
     const campaign = await ctx.db.get(campaignId);
     if (!campaign) throw new Error("Campaign not found");
-    if (campaign.userId !== identity.tokenIdentifier) throw new Error("Unauthorized");
+    if (campaign.userId !== userId) throw new Error("Unauthorized");
 
     await ctx.db.patch(campaignId, { status });
   },
@@ -75,9 +76,8 @@ export const listActiveByUserId = internalQuery({
 export const listByUser = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
-    const userId = identity.tokenIdentifier;
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
 
     const campaigns = await ctx.db
       .query("campaigns")
@@ -104,16 +104,3 @@ export const listByUser = query({
   },
 });
 
-// Temporary debug — remove after diagnosing the userId mismatch
-export const debugMyUserId = query({
-  args: {},
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return { error: "not authenticated" };
-    return {
-      tokenIdentifier: identity.tokenIdentifier,
-      subject: identity.subject,
-      email: identity.email,
-    };
-  },
-});

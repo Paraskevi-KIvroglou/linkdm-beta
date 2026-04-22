@@ -1,5 +1,6 @@
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 export const logDm = internalMutation({
   args: {
@@ -77,9 +78,8 @@ export const listByCampaign = internalQuery({
 export const listRecentByUser = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
-    const userId = identity.tokenIdentifier;
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
 
     // Get all campaign IDs for this user
     const campaigns = await ctx.db
