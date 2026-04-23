@@ -99,7 +99,7 @@ async function linkedInSendDm(recipientUrn, messageText) {
   const convUrn = (convData?.elements || [])[0]?.entityUrn ?? null;
 
   if (convUrn) {
-    // Existing conversation — send via createMessage
+    // ── Existing conversation → createMessage ──────────────────────────────
     const r = await li("/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage", {
       method: "POST",
       body: JSON.stringify({
@@ -119,28 +119,56 @@ async function linkedInSendDm(recipientUrn, messageText) {
       return { success: false, error: `createMessage_${r.status}: ${b.slice(0, 200)}` };
     }
     return { success: true };
-  } else {
-    // No conversation yet — create + send in one call
-    const r = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
-      method: "POST",
-      body: JSON.stringify({
-        mailboxUrn: senderFsdUrn,
-        message: {
-          body: { attributes: [], text: messageText },
-          renderContentUnions: [],
-          originToken: crypto.randomUUID(),
-        },
-        recipients: [recipientFsdUrn],
-        trackingId: trackingId(),
-        dedupeByClientGeneratedToken: false,
-      }),
-    });
-    if (!r.ok) {
-      const b = await r.text().catch(() => "");
-      return { success: false, error: `createConversation_${r.status}: ${b.slice(0, 200)}` };
-    }
-    return { success: true };
   }
+
+  // ── No existing conversation → try two formats ─────────────────────────────
+
+  // Format A: new Dash API
+  const rA = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
+    method: "POST",
+    body: JSON.stringify({
+      mailboxUrn: senderFsdUrn,
+      message: {
+        body: { attributes: [], text: messageText },
+        renderContentUnions: [],
+        originToken: crypto.randomUUID(),
+      },
+      recipients: [recipientFsdUrn],
+      trackingId: trackingId(),
+      dedupeByClientGeneratedToken: false,
+    }),
+  });
+  if (rA.ok) return { success: true };
+  const bA = await rA.text().catch(() => "");
+
+  // Format B: legacy messaging API (pre-2023 format, still active for many accounts)
+  const memberId = recipientUrn?.match(/urn:li:member:(\d+)/)?.[1] ?? recipientFsdUrn;
+  const rB = await li("/voyager/api/messaging/conversations?action=create", {
+    method: "POST",
+    headers: { "x-restli-protocol-version": "2.0.0" },
+    body: JSON.stringify({
+      keyVersion: "LEGACY_INBOX",
+      conversationCreate: {
+        eventCreate: {
+          value: {
+            "com.linkedin.voyager.messaging.create.MessageCreate": {
+              attributedBody: { text: messageText, attributes: [] },
+              attachments: [],
+            },
+          },
+        },
+        recipients: [`urn:li:member:${memberId}`],
+        subtype: "MEMBER_TO_MEMBER",
+      },
+    }),
+  });
+  if (rB.ok) return { success: true };
+  const bB = await rB.text().catch(() => "");
+
+  return {
+    success: false,
+    error: `dashAPI_${rA.status}:${bA.slice(0, 100)} | legacyAPI_${rB.status}:${bB.slice(0, 100)}`,
+  };
 }
 
 // ── Content script health check + auto-inject ────────────────────────────────
