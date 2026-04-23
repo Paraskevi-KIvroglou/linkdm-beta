@@ -31,7 +31,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message.type === "REPLY_TO_COMMENT") {
-    replyToComment(message.commentUrn, message.message).then(sendResponse).catch((err) => {
+    replyToComment(message.commentUrn, message.message, message.actorUrn).then(sendResponse).catch((err) => {
       sendResponse({ success: false, error: err.message });
     });
     return true;
@@ -155,6 +155,34 @@ function parseCommenters(data) {
   return commenters;
 }
 
+// ── Extract post author URN (org URN for company posts) ───────────────────────
+// The comments API response includes the feed update object which has the actor
+// that created the post. For company posts it's urn:li:organization:XXX.
+function extractPostActorUrn(data) {
+  const included = data.included || [];
+  // Look for an Update or FeedUpdate object that has an actor with an organization URN
+  for (const item of included) {
+    const type = item.$type || "";
+    if (!type.includes("Update") && !type.includes("FeedUpdate")) continue;
+    // Try actor field variations
+    const actor =
+      item.actor?.["*miniCompany"] ??           // new shape: urn:li:fs_miniCompany:XXX
+      item.actor?.["com.linkedin.voyager.feed.Company"]?.company ??
+      item.actor?.["*company"] ??
+      null;
+    if (actor) {
+      // Convert fs_miniCompany URN → organization URN
+      const orgUrn = actor.replace("urn:li:fs_miniCompany:", "urn:li:organization:");
+      if (orgUrn.startsWith("urn:li:organization:")) return orgUrn;
+    }
+    // Sometimes the actor URN is directly stored as objectUrn on a MiniCompany included item
+  }
+  // Fallback: look for a MiniCompany included object — its objectUrn is the org URN
+  const miniCompany = included.find(i => (i.$type || "").includes("MiniCompany"));
+  if (miniCompany?.objectUrn) return miniCompany.objectUrn;
+  return null;
+}
+
 // ── Fetch commenters from Voyager API ─────────────────────────────────────────
 async function fetchCommenters(postUrl) {
   const csrfToken = getCsrfToken();
@@ -190,8 +218,12 @@ async function fetchCommenters(postUrl) {
         JSON.stringify((data.included || []).slice(0, 2)));
     }
 
-    console.log(`[linkdm] Fetched ${commenters.length} commenters for ${postUrn}`);
-    return { commenters };
+    // Extract the post author URN — for company posts this is urn:li:organization:XXX
+    // It appears in the feed update object under actor or in the paging root.
+    const postActorUrn = extractPostActorUrn(data);
+
+    console.log(`[linkdm] Fetched ${commenters.length} commenters for ${postUrn}`, postActorUrn ? `| post actor: ${postActorUrn}` : "");
+    return { commenters, postActorUrn };
   } catch (err) {
     return { error: err.message };
   }
@@ -387,11 +419,16 @@ async function findConversationUrn(csrfToken, recipientFsdUrn) {
 }
 
 // ── Reply to comment via Voyager feed API ─────────────────────────────────────
-async function replyToComment(commentUrn, message) {
+// actorUrn: optional override — pass the organization URN for company page posts
+//   so the reply appears from the company, not your personal profile.
+async function replyToComment(commentUrn, message, actorUrn) {
   const csrfToken = getCsrfToken();
   if (!csrfToken) return { success: false, error: "NO_CSRF_TOKEN" };
 
-  const actorUrn = await getMyProfileUrn();
+  // Use provided actor (e.g. org URN for company posts) or fall back to personal URN
+  if (!actorUrn) {
+    actorUrn = await getMyProfileUrn();
+  }
   if (!actorUrn) return { success: false, error: "COULD_NOT_GET_PROFILE_URN" };
 
   if (!commentUrn) return { success: false, error: "NO_COMMENT_URN" };

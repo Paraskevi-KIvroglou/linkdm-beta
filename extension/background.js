@@ -509,10 +509,13 @@ async function runCampaignLoop() {
     // Reply to the comment if a reply template is configured
     if (status === "sent" && campaign.replyTemplate && next.commentUrn) {
       try {
+        // For company posts pass the org URN so the reply appears from the company page
+        const replyActorUrn = campaign.postType === "company" ? (fetchResult.postActorUrn ?? null) : null;
         const replyResult = await chrome.tabs.sendMessage(linkedinTab.id, {
           type: "REPLY_TO_COMMENT",
           commentUrn: next.commentUrn,
           message: campaign.replyTemplate,
+          actorUrn: replyActorUrn,
         });
         if (replyResult?.success) {
           console.log(`[linkdm] Comment reply sent for ${next.profileName}`);
