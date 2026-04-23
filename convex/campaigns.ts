@@ -66,11 +66,11 @@ export const listActiveByUserId = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, { userId }) => {
     // Collect all userIds that share this email (handles auth-bug duplicates)
-    const currentUser = await ctx.db.get(userId as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = ctx.db as any;
+    const currentUser = await db.get(userId);
     let allUserIds: string[] = [userId];
     if (currentUser?.email) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const db = ctx.db as any;
       const sameEmailUsers = await db
         .query("users")
         .withIndex("email", (q: any) => q.eq("email", currentUser.email))
