@@ -5,7 +5,7 @@
 // ── Configuration ─────────────────────────────────────────────────────────────
 // This is your Convex HTTP site URL — different from NEXT_PUBLIC_CONVEX_URL.
 // Replace .convex.cloud with .convex.site in your deployment URL.
-const CONVEX_SITE_URL = "https://ideal-squid-646.convex.site";
+const CONVEX_SITE_URL = "https://utmost-lemur-208.eu-west-1.convex.site";
 
 // ── Startup: register alarm ───────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(setupAlarms);
