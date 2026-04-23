@@ -191,7 +191,55 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl) {
       return { success: false, error: "CONNECTED_but_no_conversation_found", connectionStatus: "CONNECTED" };
     }
 
-    return { success: false, error: `NOT_CONNECTED_RESTRICTED_403: ${bA.slice(0, 150)}`, connectionStatus: "NOT_CONNECTED" };
+    // Not connected — try sending a connection request with the message as the note.
+    // LinkedIn caps connection notes at 300 characters.
+    const note = messageText.slice(0, 300);
+
+    // Try newer Dash relationship API first
+    const invR = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
+      method: "POST",
+      body: JSON.stringify({
+        inviteeUrn: recipientFsdUrn,
+        customMessage: note,
+        invitationType: "CONNECTION",
+      }),
+    });
+    if (invR.ok) {
+      return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
+    }
+    const invB = await invR.text().catch(() => "");
+
+    // Fallback: legacy normInvitations API
+    const publicId2 = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
+    if (publicId2) {
+      const legInvR = await li("/voyager/api/growth/normInvitations", {
+        method: "POST",
+        body: JSON.stringify({
+          invitee: {
+            "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+              profileId: publicId2,
+            },
+          },
+          trackingId: trackingId(),
+          message: note,
+        }),
+      });
+      if (legInvR.ok) {
+        return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
+      }
+      const legInvB = await legInvR.text().catch(() => "");
+      return {
+        success: false,
+        error: `CONNECT_REQUEST_FAILED: dash_${invR.status} legacy_${legInvR.status}: ${legInvB.slice(0, 100)}`,
+        connectionStatus: "NOT_CONNECTED",
+      };
+    }
+
+    return {
+      success: false,
+      error: `CONNECT_REQUEST_FAILED: dash_${invR.status}: ${invB.slice(0, 150)}`,
+      connectionStatus: "NOT_CONNECTED",
+    };
   }
 
   // Format B: newer Dash API as fallback
@@ -411,7 +459,9 @@ async function runCampaignLoop() {
     const status = dmResult?.success ? "sent" : "failed";
 
     if (status === "sent") {
-      // Mark as done — never DM this person again for this campaign
+      const method = dmResult?.method === "connection_request" ? "connection request" : "DM";
+      console.log(`[linkdm] ✅ Sent ${method} to ${next.profileName}`);
+      // Mark as done — never contact this person again for this campaign
       if (!dmedProfiles[campaign._id]) dmedProfiles[campaign._id] = [];
       dmedProfiles[campaign._id].push(next.profileId);
       await chrome.storage.local.set({ dmedProfiles });
