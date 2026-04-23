@@ -146,20 +146,28 @@ function parseCommenters(data: unknown): { commenters: Commenter[]; postActorUrn
 
 // ── DM sending ────────────────────────────────────────────────────────────────
 
-async function findConvUrn(recipFsdUrn: string, liAt: string, js: string, ua: string): Promise<string | null> {
+async function findConvUrn(
+  recipFsdUrn: string, liAt: string, js: string, ua: string
+): Promise<{ convUrn: string | null; sessionExpired?: boolean }> {
   const r = await liGet(
     `/voyager/api/voyagerMessagingDashMessengerConversations?q=participants&recipientUrns=List(${encodeURIComponent(recipFsdUrn)})`,
     liAt, js, ua
   );
-  if (!r.ok || !r.data) return null;
-  return ((r.data as { elements?: Array<{ entityUrn?: string }> }).elements ?? [])[0]?.entityUrn ?? null;
+  if (r.status === 401 || r.status === 403) return { convUrn: null, sessionExpired: true };
+  if (!r.ok || !r.data) return { convUrn: null };
+  return {
+    convUrn: ((r.data as { elements?: Array<{ entityUrn?: string }> }).elements ?? [])[0]?.entityUrn ?? null
+  };
 }
 
 async function sendDm(
   recipFsdUrn: string, senderFsdUrn: string, message: string,
   liAt: string, js: string, ua: string
 ): Promise<{ success: boolean; error?: string; sessionExpired?: boolean }> {
-  const convUrn = await findConvUrn(recipFsdUrn, liAt, js, ua);
+  const { convUrn, sessionExpired: convLookupExpired } = await findConvUrn(recipFsdUrn, liAt, js, ua);
+  if (convLookupExpired) {
+    return { success: false, sessionExpired: true, error: "SESSION_conv_lookup" };
+  }
   const trackingId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 
   let res;
@@ -204,6 +212,9 @@ export const cloudCampaignLoop = internalAction({
       return;
     }
 
+    const startTime = Date.now();
+    const MAX_RUN_MS = 8 * 60 * 1000; // 8 minutes, leaving headroom for cleanup
+
     const allCampaigns = await ctx.runQuery(internal.campaigns.listAllActive, {});
     console.log(`[cloudLoop] ${allCampaigns.length} active campaign(s)`);
 
@@ -225,6 +236,8 @@ export const cloudCampaignLoop = internalAction({
       try {
         liAt = await decryptCookie(session.liAt, encKey);
         jsessionId = await decryptCookie(session.jsessionId, encKey);
+        // SECURITY: liAt and jsessionId are decrypted cookie values.
+        // Never log these variables anywhere below this point.
       } catch (err) {
         console.error(`[cloudLoop] Decryption failed for user ${userId}:`, err);
         continue;
@@ -272,6 +285,10 @@ export const cloudCampaignLoop = internalAction({
         console.log(`[cloudLoop] ${commenters.length} commenter(s) for campaign ${campaign._id}`);
 
         for (const commenter of commenters) {
+          if (Date.now() - startTime > MAX_RUN_MS) {
+            console.warn("[cloudLoop] Approaching timeout budget, stopping early — will resume on next cron run");
+            return;
+          }
           if (sessionDied) break;
 
           const currentCount = await ctx.runQuery(internal.dmLog.getTodayCount, { campaignId: campaign._id });
@@ -320,11 +337,17 @@ export const cloudCampaignLoop = internalAction({
               .replace(/\{\{name\}\}/gi, commenter.profileName);
             const actorUrn = (campaign.postType === "company" && postActorUrn)
               ? postActorUrn : senderFsdUrn;
-            await liPost(
+            const replyRes = await liPost(
               "/voyager/api/feed/comments",
               { actor: actorUrn, message: { attributes: [], text: replyText }, parentComment: commenter.commentUrn },
               liAt, jsessionId, ua
             );
+            if (replyRes.status === 401 || replyRes.status === 403) {
+              await ctx.runMutation(internal.linkedinSessions.markExpired, { userId });
+              await ctx.runMutation(internal.campaigns.pauseAllForUser, { userId });
+              await notifyExpired(userId);
+              sessionDied = true;
+            }
           }
 
           // 2–4 s jitter between sends
