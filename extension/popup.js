@@ -5,6 +5,10 @@ const liCard     = document.getElementById("linkedin-card");
 const liTitle    = document.getElementById("li-title");
 const liDetail   = document.getElementById("li-detail");
 const openLiBtn  = document.getElementById("open-li-btn");
+const sessionCard  = document.getElementById("session-card");
+const sessionTitle = document.getElementById("session-title");
+const sessionDetail = document.getElementById("session-detail");
+const syncBtn      = document.getElementById("sync-session-btn");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +73,8 @@ async function showConnected() {
     openLiBtn.style.display = "";
     openLiBtn.textContent = "Open LinkedIn (refresh)";
   }
+
+  await refreshSessionStatus();
 }
 
 function showDisconnected() {
@@ -82,6 +88,8 @@ function showDisconnected() {
   actionBtn.onclick = connect;
   liCard.style.display = "none";
   openLiBtn.style.display = "none";
+  if (sessionCard) sessionCard.style.display = "none";
+  if (syncBtn) syncBtn.style.display = "none";
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
@@ -155,6 +163,49 @@ async function renderFailedList() {
         <div style="color:#9ca3af; font-size:11px">${reason}</div>
       </div>`;
   }).join("");
+}
+
+// ── Session sync ──────────────────────────────────────────────────────────────
+
+function setSessionCard(type, title, detail) {
+  sessionCard.className = `card ${type}`;
+  sessionTitle.textContent = title;
+  sessionDetail.textContent = detail;
+}
+
+async function refreshSessionStatus() {
+  if (!sessionCard || !syncBtn) return;
+  sessionCard.style.display = "";
+  syncBtn.style.display = "";
+  setSessionCard("warn", "Checking session…", "");
+
+  const { sessionStatus, sessionSyncedAt } = await chrome.storage.local.get(["sessionStatus", "sessionSyncedAt"]);
+  if (sessionStatus === "active") {
+    const mins = sessionSyncedAt ? Math.floor((Date.now() - sessionSyncedAt) / 60000) : null;
+    const ago = mins !== null ? (mins < 2 ? "just now" : `${mins}m ago`) : "unknown";
+    setSessionCard("ok", "✅ LinkedIn session synced", `Last synced: ${ago}. Cloud campaigns are active.`);
+  } else if (sessionStatus === "expired") {
+    setSessionCard("error", "❌ LinkedIn session expired", "Your session expired. Sync again to resume cloud campaigns.");
+  } else {
+    setSessionCard("warn", "⚠️ LinkedIn session not synced", "Click Sync to enable cloud campaigns.");
+  }
+}
+
+if (syncBtn) {
+  syncBtn.onclick = async () => {
+    syncBtn.disabled = true;
+    syncBtn.textContent = "Syncing…";
+    setSessionCard("warn", "Syncing LinkedIn session…", "");
+    const result = await chrome.runtime.sendMessage({ type: "SYNC_LINKEDIN_SESSION" });
+    if (result?.success) {
+      await chrome.storage.local.set({ sessionStatus: "active", sessionSyncedAt: Date.now() });
+      setSessionCard("ok", "✅ Session synced!", "Cloud campaigns are now active.");
+    } else {
+      setSessionCard("error", "❌ Sync failed", result?.error ?? "Unknown error");
+    }
+    syncBtn.disabled = false;
+    syncBtn.textContent = "🔄 Sync LinkedIn session";
+  };
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

@@ -76,6 +76,15 @@
     <span id="li-detail"></span>
   </div>
 
+  <!-- LinkedIn session status (shown when token is connected) -->
+  <div id="session-card" class="card warn" style="display:none" aria-live="polite" role="status">
+    <div class="label" id="session-title">⚠️ LinkedIn session not synced</div>
+    <span id="session-detail">Click below to sync your session so campaigns run in the cloud.</span>
+  </div>
+  <button id="sync-session-btn" type="button" class="secondary" style="display:none">
+    🔄 Sync LinkedIn session
+  </button>
+
   <input id="token-input" type="password" placeholder="lnkdm_..." />
   <button id="action-btn" type="button">Connect</button>
   <button id="open-li-btn" class="secondary" type="button" style="display:none">Open LinkedIn</button>

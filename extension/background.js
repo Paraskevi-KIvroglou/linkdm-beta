@@ -556,3 +556,72 @@ chrome.notifications.onClicked.addListener((notificationId) => {
 });
 
 console.log("[linkdm] Service worker ready");
+
+// ── LinkedIn session cookie sync ───────────────────────────────────────────────
+
+const LINKEDIN_SYNC_HMAC_SECRET = "4efe5984dd50cc5242cb75b68dbc4a06f93fe4764a1e8adf377c0a32332d5cf9";
+
+/**
+ * Reads li_at and JSESSIONID from LinkedIn cookies and POSTs them to Convex.
+ * Returns { success: true } or { success: false, error: string }.
+ */
+async function extractAndSyncLinkedInSession(extensionToken) {
+  try {
+    const [liAtCookie, jsessionCookie] = await Promise.all([
+      chrome.cookies.get({ url: "https://www.linkedin.com", name: "li_at" }),
+      chrome.cookies.get({ url: "https://www.linkedin.com", name: "JSESSIONID" }),
+    ]);
+
+    if (!liAtCookie) return { success: false, error: "li_at cookie not found — please log in to LinkedIn first" };
+    if (!jsessionCookie) return { success: false, error: "JSESSIONID cookie not found — please log in to LinkedIn first" };
+
+    const liAt = liAtCookie.value;
+    const jsessionId = jsessionCookie.value; // e.g. "ajax:1234567890"
+
+    // Build HMAC-SHA256 signature
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw", enc.encode(LINKEDIN_SYNC_HMAC_SECRET),
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    );
+    const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(`timestamp=${timestamp}`));
+    const signature = Array.from(new Uint8Array(sigBuf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    const res = await fetch(`${CONVEX_SITE_URL}/api/extension/sync-session`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${extensionToken}`,
+        "X-Timestamp": timestamp,
+        "X-Signature": signature,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ liAt, jsessionId, userAgent: navigator.userAgent }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { success: false, error: `Server error ${res.status}: ${text.slice(0, 200)}` };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message ?? "Unknown error" };
+  }
+}
+
+// Handle SYNC_SESSION message from popup
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "SYNC_LINKEDIN_SESSION") {
+    chrome.storage.local.get("token", async ({ token }) => {
+      if (!token) {
+        sendResponse({ success: false, error: "Extension not connected — paste your token first" });
+        return;
+      }
+      const result = await extractAndSyncLinkedInSession(token);
+      sendResponse(result);
+    });
+    return true; // keep channel open for async response
+  }
+});
