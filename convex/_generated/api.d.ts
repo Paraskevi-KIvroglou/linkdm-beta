@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as campaigns from "../campaigns.js";
+import type * as debug from "../debug.js";
 import type * as dmLog from "../dmLog.js";
 import type * as extensionToken from "../extensionToken.js";
 import type * as http from "../http.js";
@@ -24,6 +25,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   campaigns: typeof campaigns;
+  debug: typeof debug;
   dmLog: typeof dmLog;
   extensionToken: typeof extensionToken;
   http: typeof http;
