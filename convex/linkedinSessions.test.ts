@@ -61,16 +61,15 @@ test("getSessionStatus returns status without cookie values", async () => {
   await asUser.run(async (ctx) => {
     const { getAuthUserId: getId } = await import("@convex-dev/auth/server");
     const resolvedId = await getId(ctx);
-    if (resolvedId) {
-      await ctx.db.insert("linkedinSessions", {
-        userId: resolvedId,
-        liAt: "secret",
-        jsessionId: "secret2",
-        userAgent: "UA",
-        status: "active",
-        syncedAt: Date.now(),
-      });
-    }
+    if (!resolvedId) throw new Error("convex-test: auth identity did not resolve to a userId — check convex-test + @convex-dev/auth version");
+    await ctx.db.insert("linkedinSessions", {
+      userId: resolvedId,
+      liAt: "secret",
+      jsessionId: "secret2",
+      userAgent: "UA",
+      status: "active",
+      syncedAt: Date.now(),
+    });
   });
   const s = await asUser.query(api.linkedinSessions.getSessionStatus, {});
   expect(s).not.toBeNull();
