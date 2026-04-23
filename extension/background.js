@@ -217,9 +217,10 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
       }),
     });
     if (invR1.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-    errors.push(`dashV2_${invR1.status}`);
+    const invB1 = await invR1.text().catch(() => "");
+    errors.push(`dashV2_${invR1.status}:${invB1.slice(0, 120)}`);
 
-    // Attempt 2: Dash relationships API (older body shape)
+    // Attempt 2: Dash relationships API (older flat body shape)
     const invR2 = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
       method: "POST",
       body: JSON.stringify({
@@ -228,31 +229,33 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
       }),
     });
     if (invR2.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-    errors.push(`dashV1_${invR2.status}`);
+    const invB2 = await invR2.text().catch(() => "");
+    errors.push(`dashV1_${invR2.status}:${invB2.slice(0, 120)}`);
 
-    // Attempt 3: legacy normInvitations API (public profile ID)
+    // Attempt 3: legacy normInvitations API — try with trailing slash (avoids 301 redirect)
     const publicId2 = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
     if (publicId2) {
-      const invR3 = await li("/voyager/api/growth/normInvitations", {
-        method: "POST",
-        redirect: "follow",
-        body: JSON.stringify({
-          invitee: {
-            "com.linkedin.voyager.growth.invitation.InviteeProfile": {
-              profileId: publicId2,
-            },
+      const legBody = JSON.stringify({
+        invitee: {
+          "com.linkedin.voyager.growth.invitation.InviteeProfile": {
+            profileId: publicId2,
           },
-          trackingId: trackingId(),
-          message: note,
-        }),
+        },
+        trackingId: trackingId(),
+        message: note,
+      });
+      const invR3 = await li("/voyager/api/growth/normInvitations/", {
+        method: "POST",
+        body: legBody,
       });
       if (invR3.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-      errors.push(`legacy_${invR3.status}`);
+      const invB3 = await invR3.text().catch(() => "");
+      errors.push(`legacy_${invR3.status}:${invB3.slice(0, 120)}`);
     }
 
     return {
       success: false,
-      error: `CONNECT_REQUEST_FAILED: ${errors.join(" ")}`,
+      error: `CONNECT_REQUEST_FAILED: ${errors.join(" | ")}`,
       connectionStatus: "NOT_CONNECTED",
     };
   }
