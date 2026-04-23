@@ -52,4 +52,18 @@ export default defineSchema({
       "status",
       "sentAt",
     ]),
+
+  linkedinSessions: defineTable({
+    userId:     v.string(),
+    liAt:       v.string(),   // AES-256-GCM encrypted li_at cookie value
+    jsessionId: v.string(),   // AES-256-GCM encrypted JSESSIONID cookie value
+    userAgent:  v.string(),   // browser UA (stored plain)
+    status:     v.union(
+                  v.literal("active"),
+                  v.literal("expired"),
+                  v.literal("pending")
+                ),
+    syncedAt:   v.number(),                    // epoch ms of last successful sync
+    expiresAt:  v.optional(v.number()),        // epoch ms; set when expired
+  }).index("by_userId", ["userId"]),
 });
