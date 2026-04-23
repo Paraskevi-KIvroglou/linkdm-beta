@@ -198,9 +198,10 @@ async function fetchCommenters(postUrl) {
 }
 
 // ── Send DM via Voyager messaging API ─────────────────────────────────────────
-// Uses the newer ?action=createMessage endpoint (the old ?action=create is dead).
-// Caller must pass profileId as urn:li:fsd_profile:XXX (not urn:li:member:XXX).
-// background.js passes profileFsdUrn which is forwarded here as profileId.
+// Handles two cases:
+//   1. Existing conversation → look up conversationUrn, send via createMessage
+//   2. No conversation yet  → create new conversation via createConversation
+//                             (this also sends the first message in one call)
 async function sendDm(profileId, message) {
   const csrfToken = getCsrfToken();
   if (!csrfToken) return { success: false, error: "NO_CSRF_TOKEN" };
@@ -215,11 +216,22 @@ async function sendDm(profileId, message) {
   const senderFsdUrn = await getMyFsdProfileUrn();
   if (!senderFsdUrn) return { success: false, error: "COULD_NOT_GET_SENDER_FSD_URN" };
 
-  // Look up conversationUrn via participant query
-  const convUrn = await findConversationUrn(csrfToken, senderFsdUrn, recipientFsdUrn);
-  if (!convUrn) return { success: false, error: "COULD_NOT_FIND_CONVERSATION_URN" };
+  // Check if a conversation already exists with this person
+  const convUrn = await findConversationUrn(csrfToken, recipientFsdUrn);
 
-  // Send message via new endpoint
+  if (convUrn) {
+    // ── Case 1: existing conversation — send via createMessage ────────────────
+    console.log(`[linkdm] Sending to existing conversation: ${convUrn}`);
+    return sendToExistingConversation(csrfToken, senderFsdUrn, convUrn, message);
+  } else {
+    // ── Case 2: no conversation yet — create + send in one call ───────────────
+    console.log(`[linkdm] No existing conversation — creating new one with ${recipientFsdUrn}`);
+    return createNewConversation(csrfToken, senderFsdUrn, recipientFsdUrn, message);
+  }
+}
+
+// ── Send to an existing conversation ─────────────────────────────────────────
+async function sendToExistingConversation(csrfToken, senderFsdUrn, convUrn, message) {
   try {
     const res = await fetch(
       "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
@@ -251,7 +263,47 @@ async function sendDm(profileId, message) {
       return { success: false, error: `HTTP_${res.status}: ${body.slice(0, 200)}` };
     }
 
-    console.log(`[linkdm] DM sent to ${recipientFsdUrn}`);
+    console.log(`[linkdm] DM sent to existing conversation`);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ── Create a brand-new conversation and send the first message ────────────────
+async function createNewConversation(csrfToken, senderFsdUrn, recipientFsdUrn, message) {
+  try {
+    const res = await fetch(
+      "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation",
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "csrf-token": csrfToken,
+          "x-restli-protocol-version": "2.0.0",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mailboxUrn: senderFsdUrn,
+          message: {
+            body: { attributes: [], text: message },
+            renderContentUnions: [],
+            originToken: crypto.randomUUID(),
+          },
+          recipients: [recipientFsdUrn],
+          trackingId: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))),
+          dedupeByClientGeneratedToken: false,
+        }),
+      }
+    );
+
+    if (res.status === 401) return { success: false, error: "SESSION_EXPIRED" };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { success: false, error: `HTTP_${res.status}: ${body.slice(0, 200)}` };
+    }
+
+    console.log(`[linkdm] New conversation created and first DM sent to ${recipientFsdUrn}`);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -259,8 +311,8 @@ async function sendDm(profileId, message) {
 }
 
 // ── Look up conversationUrn by recipient fsd_profile URN ─────────────────────
-async function findConversationUrn(csrfToken, senderFsdUrn, recipientFsdUrn) {
-  // Try the participant-based lookup (Restli 2.0 List encoding)
+// Returns the conversationUrn string if a conversation exists, or null if not.
+async function findConversationUrn(csrfToken, recipientFsdUrn) {
   const encodedRecipient = encodeURIComponent(recipientFsdUrn);
   const url = `https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerConversations` +
     `?q=participants&recipientUrns=List(${encodedRecipient})`;
@@ -276,10 +328,9 @@ async function findConversationUrn(csrfToken, senderFsdUrn, recipientFsdUrn) {
     console.log(`[linkdm] Conversation lookup status: ${res.status}`);
     if (!res.ok) return null;
     const data = await res.json();
-    // The first element should be the conversation with this recipient
     const conv = (data.elements || [])[0];
     if (conv?.entityUrn) {
-      console.log(`[linkdm] Found conversationUrn: ${conv.entityUrn}`);
+      console.log(`[linkdm] Found existing conversation: ${conv.entityUrn}`);
       return conv.entityUrn;
     }
   } catch (err) {
