@@ -41,7 +41,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // chrome.scripting.executeScript. Running in MAIN world means it uses
 // LinkedIn's monkey-patched window.fetch, which adds the proprietary headers
 // their API requires (avoiding the 400 that clean fetch calls get).
-async function linkedInSendDm(recipientUrn, messageText, profileUrl) {
+async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) {
   // ── helpers (must be self-contained — no closure access) ──────────────────
   function csrf() {
     const m = document.cookie.match(/JSESSIONID="?([^";]+)"?/);
@@ -123,36 +123,44 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl) {
 
   // ── No existing conversation → try legacy API first (it reaches LinkedIn correctly) ──
 
-  // Extract member ID for legacy API (needs urn:li:member:ID format)
-  const memberId = recipientUrn?.match(/urn:li:member:(\d+)/)?.[1]
-    ?? recipientFsdUrn?.match(/[^:]+$/)?.[0];
+  // Extract numeric member ID — required by the legacy API.
+  // Prefer the explicit memberUrn arg (urn:li:member:NUMERIC) over guessing from the fsd URN,
+  // because fsd_profile IDs are base64-encoded and NOT valid member IDs.
+  const memberId = memberUrn?.match(/urn:li:member:(\d+)/)?.[1]
+    ?? recipientUrn?.match(/urn:li:member:(\d+)/)?.[1]
+    ?? null;
 
-  // Format A: legacy messaging API — proven to reach LinkedIn's servers
-  const rA = await li("/voyager/api/messaging/conversations?action=create", {
-    method: "POST",
-    body: JSON.stringify({
-      keyVersion: "LEGACY_INBOX",
-      conversationCreate: {
-        eventCreate: {
-          value: {
-            "com.linkedin.voyager.messaging.create.MessageCreate": {
-              attributedBody: { text: messageText, attributes: [] },
-              attachments: [],
+  // Format A: legacy messaging API — only attempt when we have a numeric member ID.
+  // Using a base64 fsd_profile ID here causes a 400.
+  let rA = null;
+  let bA = "";
+  if (memberId) {
+    rA = await li("/voyager/api/messaging/conversations?action=create", {
+      method: "POST",
+      body: JSON.stringify({
+        keyVersion: "LEGACY_INBOX",
+        conversationCreate: {
+          eventCreate: {
+            value: {
+              "com.linkedin.voyager.messaging.create.MessageCreate": {
+                attributedBody: { text: messageText, attributes: [] },
+                attachments: [],
+              },
             },
           },
+          recipients: [`urn:li:member:${memberId}`],
+          subtype: "MEMBER_TO_MEMBER",
         },
-        recipients: [`urn:li:member:${memberId}`],
-        subtype: "MEMBER_TO_MEMBER",
-      },
-    }),
-  });
-  if (rA.ok) return { success: true };
-  const bA = await rA.text().catch(() => "");
+      }),
+    });
+    if (rA.ok) return { success: true };
+    bA = await rA.text().catch(() => "");
+  }
 
   // 403 = LinkedIn understood the request but blocked it (connections-only, etc.)
   // Check if sender is actually connected with recipient — if so, retry via
   // the conversation endpoint which works for 1st-degree connections.
-  if (rA.status === 403) {
+  if (rA?.status === 403) {
     const publicId = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
     let isConnected = false;
     if (publicId) {
@@ -262,7 +270,7 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl) {
 
   return {
     success: false,
-    error: `legacyAPI_${rA.status} | dashAPI_${rB.status}:${bB.slice(0, 100)}`,
+    error: `legacyAPI_${rA?.status ?? "skipped"} | dashAPI_${rB.status}:${bB.slice(0, 100)}`,
   };
 }
 
@@ -448,7 +456,7 @@ async function runCampaignLoop() {
         target: { tabId: linkedinTab.id },
         world: "MAIN",
         func: linkedInSendDm,
-        args: [next.profileFsdUrn || next.profileId, campaign.messageTemplate, next.profileUrl],
+        args: [next.profileFsdUrn || next.profileId, campaign.messageTemplate, next.profileUrl, next.profileId],
       });
       dmResult = execResults?.[0]?.result ?? { success: false, error: "SCRIPT_EXEC_NO_RESULT" };
     } catch (err) {
