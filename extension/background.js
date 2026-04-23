@@ -121,31 +121,15 @@ async function linkedInSendDm(recipientUrn, messageText) {
     return { success: true };
   }
 
-  // ── No existing conversation → try two formats ─────────────────────────────
+  // ── No existing conversation → try legacy API first (it reaches LinkedIn correctly) ──
 
-  // Format A: new Dash API
-  const rA = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
-    method: "POST",
-    body: JSON.stringify({
-      mailboxUrn: senderFsdUrn,
-      message: {
-        body: { attributes: [], text: messageText },
-        renderContentUnions: [],
-        originToken: crypto.randomUUID(),
-      },
-      recipients: [recipientFsdUrn],
-      trackingId: trackingId(),
-      dedupeByClientGeneratedToken: false,
-    }),
-  });
-  if (rA.ok) return { success: true };
-  const bA = await rA.text().catch(() => "");
+  // Extract member ID for legacy API (needs urn:li:member:ID format)
+  const memberId = recipientUrn?.match(/urn:li:member:(\d+)/)?.[1]
+    ?? recipientFsdUrn?.match(/[^:]+$/)?.[0];
 
-  // Format B: legacy messaging API (pre-2023 format, still active for many accounts)
-  const memberId = recipientUrn?.match(/urn:li:member:(\d+)/)?.[1] ?? recipientFsdUrn;
-  const rB = await li("/voyager/api/messaging/conversations?action=create", {
+  // Format A: legacy messaging API — proven to reach LinkedIn's servers
+  const rA = await li("/voyager/api/messaging/conversations?action=create", {
     method: "POST",
-    headers: { "x-restli-protocol-version": "2.0.0" },
     body: JSON.stringify({
       keyVersion: "LEGACY_INBOX",
       conversationCreate: {
@@ -162,12 +146,36 @@ async function linkedInSendDm(recipientUrn, messageText) {
       },
     }),
   });
+  if (rA.ok) return { success: true };
+  const bA = await rA.text().catch(() => "");
+
+  // 403 = recipient has messaging restrictions (connections-only etc.)
+  // Treat as permanent failure so we skip them and move on
+  if (rA.status === 403) {
+    return { success: false, error: `RECIPIENT_RESTRICTED_403: ${bA.slice(0, 150)}` };
+  }
+
+  // Format B: newer Dash API as fallback
+  const rB = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
+    method: "POST",
+    body: JSON.stringify({
+      mailboxUrn: senderFsdUrn,
+      message: {
+        body: { attributes: [], text: messageText },
+        renderContentUnions: [],
+        originToken: crypto.randomUUID(),
+      },
+      recipients: [recipientFsdUrn],
+      trackingId: trackingId(),
+      dedupeByClientGeneratedToken: false,
+    }),
+  });
   if (rB.ok) return { success: true };
   const bB = await rB.text().catch(() => "");
 
   return {
     success: false,
-    error: `dashAPI_${rA.status}:${bA.slice(0, 100)} | legacyAPI_${rB.status}:${bB.slice(0, 100)}`,
+    error: `legacyAPI_${rA.status} | dashAPI_${rB.status}:${bB.slice(0, 100)}`,
   };
 }
 

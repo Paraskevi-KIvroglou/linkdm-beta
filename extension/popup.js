@@ -120,10 +120,9 @@ async function disconnect() {
 
 function friendlyError(raw) {
   if (!raw) return "Unknown reason";
-  if (raw.includes("SESSION_EXPIRED") || raw.includes("NO_CSRF")) return "LinkedIn session expired";
+  if (raw.includes("SESSION_EXPIRED") || raw.includes("NO_CSRF") || raw.includes("401")) return "LinkedIn session expired";
+  if (raw.includes("RECIPIENT_RESTRICTED") || raw.includes("403")) return "Connections only — can't message";
   if (raw.includes("400")) return "Message blocked by LinkedIn";
-  if (raw.includes("401")) return "LinkedIn session expired";
-  if (raw.includes("403")) return "Not allowed to message this person";
   if (raw.includes("PROFILE_LOOKUP")) return "Couldn't find this person's profile";
   if (raw.includes("ME_NO_URN") || raw.includes("COULD_NOT_GET")) return "Couldn't identify your account";
   return "Message couldn't be delivered";
