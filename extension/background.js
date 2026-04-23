@@ -36,6 +36,37 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ── Content script health check + auto-inject ────────────────────────────────
+// Returns true if the content script is reachable in tabId.
+// If not reachable, injects content.js programmatically (handles tabs that were
+// open before the extension loaded, or after an extension reload).
+async function ensureContentScript(tabId) {
+  // Try a PING first
+  try {
+    const res = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+    if (res?.ok) {
+      console.log("[linkdm] Content script already running ✓");
+      return true;
+    }
+  } catch {}
+
+  // Not reachable — inject it now
+  console.log("[linkdm] Content script missing — injecting...");
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"],
+    });
+    console.log("[linkdm] Content script injected ✓");
+    // Give it 300ms to register its message listener
+    await new Promise((r) => setTimeout(r, 300));
+    return true;
+  } catch (err) {
+    console.error("[linkdm] Failed to inject content script:", err.message);
+    return false;
+  }
+}
+
 // ── Campaign orchestration ────────────────────────────────────────────────────
 async function runCampaignLoop() {
   // Require a token
@@ -55,6 +86,15 @@ async function runCampaignLoop() {
   const linkedinTab = tabs[0];
   if (!linkedinTab) {
     console.log("[linkdm] No LinkedIn tab open — waiting");
+    return;
+  }
+
+  // Make sure the content script is actually running in that tab.
+  // It may not be if the tab was open before the extension loaded, or after an
+  // extension reload. If the PING fails, inject content.js programmatically.
+  const ready = await ensureContentScript(linkedinTab.id);
+  if (!ready) {
+    console.warn("[linkdm] Could not reach or inject content script — will retry next tick");
     return;
   }
 
