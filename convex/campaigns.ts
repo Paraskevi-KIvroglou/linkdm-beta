@@ -58,18 +58,38 @@ export const getById = internalQuery({
 
 /**
  * Returns up to 50 active campaigns for a user.
- * Users are not expected to have more than 50 active campaigns at once.
- * If they do, campaigns beyond the first 50 will be silently omitted.
+ * Also finds campaigns stored under duplicate user records that share the same
+ * email — mirrors the email-based lookup in listByUser so the extension sees
+ * the same campaigns as the dashboard.
  */
 export const listActiveByUserId = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, { userId }) => {
-    return await ctx.db
-      .query("campaigns")
-      .withIndex("by_userId_and_status", (q) =>
-        q.eq("userId", userId).eq("status", "active")
+    // Collect all userIds that share this email (handles auth-bug duplicates)
+    const currentUser = await ctx.db.get(userId as any);
+    let allUserIds: string[] = [userId];
+    if (currentUser?.email) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = ctx.db as any;
+      const sameEmailUsers = await db
+        .query("users")
+        .withIndex("email", (q: any) => q.eq("email", currentUser.email))
+        .collect();
+      allUserIds = [...new Set([userId, ...sameEmailUsers.map((u: any) => u._id)])];
+    }
+
+    // Fetch active campaigns for ALL matching userIds
+    const sets = await Promise.all(
+      allUserIds.map((uid) =>
+        ctx.db
+          .query("campaigns")
+          .withIndex("by_userId_and_status", (q) =>
+            q.eq("userId", uid).eq("status", "active")
+          )
+          .take(50)
       )
-      .take(50);
+    );
+    return sets.flat().slice(0, 50);
   },
 });
 
