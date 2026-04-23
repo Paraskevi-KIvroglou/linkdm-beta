@@ -18,7 +18,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace("/dashboard/campaigns");
     }
   }, [isAuthenticated, isLoading, router]);
 
@@ -34,7 +34,7 @@ export default function LoginPage() {
     }
 
     setStatus("sending");
-    await signIn("resend", { email, redirectTo: "/dashboard" });
+    await signIn("resend", { email, redirectTo: "/dashboard/campaigns" });
     router.push("/check-email");
   }
 
