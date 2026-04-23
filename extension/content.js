@@ -206,11 +206,18 @@ async function sendDm(profileId, message) {
   const csrfToken = getCsrfToken();
   if (!csrfToken) return { success: false, error: "NO_CSRF_TOKEN" };
 
-  // Require fsd_profile URN — member URNs don't work with the new messaging API
-  if (!profileId?.startsWith("urn:li:fsd_profile:")) {
-    return { success: false, error: "NEED_FSD_PROFILE_URN_NOT_MEMBER_URN" };
+  // Resolve to fsd_profile URN — the messaging API requires this format.
+  // parseCommenters already derives fsd_profile from fs_miniProfile entityUrn,
+  // but as a fallback we also accept a member URN and look up the fsd URN.
+  let recipientFsdUrn = profileId;
+  if (!recipientFsdUrn?.startsWith("urn:li:fsd_profile:")) {
+    const resolved = await resolveFsdUrn(csrfToken, profileId);
+    if (!resolved) {
+      return { success: false, error: `COULD_NOT_RESOLVE_FSD_URN_FOR:${profileId}` };
+    }
+    recipientFsdUrn = resolved;
+    console.log(`[linkdm] Resolved fsd URN: ${recipientFsdUrn}`);
   }
-  const recipientFsdUrn = profileId;
 
   // Get sender's fsd_profile URN
   const senderFsdUrn = await getMyFsdProfileUrn();
@@ -308,6 +315,46 @@ async function createNewConversation(csrfToken, senderFsdUrn, recipientFsdUrn, m
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+// ── Resolve fsd_profile URN from any URN format ───────────────────────────────
+// If we only have a urn:li:member:ID or urn:li:fs_miniProfile:ID, look up the
+// fsd_profile URN via the profile API.
+async function resolveFsdUrn(csrfToken, profileId) {
+  // Already correct format
+  if (profileId?.startsWith("urn:li:fsd_profile:")) return profileId;
+
+  // fs_miniProfile → fsd_profile is a direct prefix swap (same encoded ID)
+  if (profileId?.startsWith("urn:li:fs_miniProfile:")) {
+    return profileId.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:");
+  }
+
+  // member URN: extract numeric ID and look up via profile API
+  const memberId = profileId?.match(/urn:li:member:(\d+)/)?.[1];
+  if (!memberId) return null;
+
+  try {
+    const res = await fetch(
+      `https://www.linkedin.com/voyager/api/identity/profiles?memberIdentity=${memberId}`,
+      {
+        credentials: "include",
+        headers: {
+          "csrf-token": csrfToken,
+          "x-restli-protocol-version": "2.0.0",
+          accept: "application/vnd.linkedin.normalized+json+2.1",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const profile = (data.included || []).find(i => i.$type?.includes("MiniProfile"));
+    if (profile?.entityUrn) {
+      return profile.entityUrn.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:");
+    }
+  } catch (err) {
+    console.warn("[linkdm] resolveFsdUrn error:", err.message);
+  }
+  return null;
 }
 
 // ── Look up conversationUrn by recipient fsd_profile URN ─────────────────────

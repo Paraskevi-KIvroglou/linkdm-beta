@@ -204,7 +204,7 @@ async function runCampaignLoop() {
 
     // Pick the first eligible commenter
     const next = eligible[0];
-    console.log(`[linkdm] Sending DM to ${next.profileName} (${next.profileId})`);
+    console.log(`[linkdm] Sending DM to ${next.profileName} | fsdUrn=${next.profileFsdUrn ?? "MISSING"} | profileId=${next.profileId}`);
 
     // Ask content script to send the DM
     let dmResult;
@@ -221,6 +221,9 @@ async function runCampaignLoop() {
     }
 
     const status = dmResult?.success ? "sent" : "failed";
+    if (!dmResult?.success) {
+      console.warn(`[linkdm] DM error for ${next.profileName}:`, dmResult?.error);
+    }
 
     // Report result to Convex backend
     try {
