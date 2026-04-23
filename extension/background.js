@@ -69,9 +69,14 @@ async function ensureContentScript(tabId) {
 
 // ── Campaign orchestration ────────────────────────────────────────────────────
 async function runCampaignLoop() {
+  console.log("[linkdm] Tick —", new Date().toLocaleTimeString());
+
   // Require a token
   const { token } = await chrome.storage.local.get("token");
-  if (!token) return;
+  if (!token) {
+    console.log("[linkdm] No token stored — open the extension popup and paste your token");
+    return;
+  }
 
   // Respect the DM pacing delay (30–90s between sends)
   const { nextSendAt = 0 } = await chrome.storage.local.get("nextSendAt");
