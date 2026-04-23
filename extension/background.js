@@ -157,47 +157,53 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
     bA = await rA.text().catch(() => "");
   }
 
-  // 403 = LinkedIn understood the request but blocked it (connections-only, etc.)
-  // Check if sender is actually connected with recipient — if so, retry via
-  // the conversation endpoint which works for 1st-degree connections.
+  // 403 from legacy API — could mean connections-only inbox OR not connected.
+  // Instead of an unreliable distance check, try the Dash createConversation API
+  // directly — it works for 1st-degree connections. Only fall through to
+  // connection requests if this also fails.
   if (rA?.status === 403) {
-    const publicId = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
-    let isConnected = false;
-    if (publicId) {
-      try {
-        const r = await li(`/voyager/api/identity/profiles/${publicId}?projection=(distance)`);
-        if (r.ok) {
-          const d = await r.json();
-          const dist = d?.data?.distance?.value ?? d?.distance?.value ?? "";
-          isConnected = dist === "DISTANCE_1";
-        }
-      } catch {}
+    console.log("[linkdm] Legacy API 403 — trying Dash createConversation");
+    const rRetry = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
+      method: "POST",
+      body: JSON.stringify({
+        mailboxUrn: senderFsdUrn,
+        message: {
+          body: { attributes: [], text: messageText },
+          renderContentUnions: [],
+          originToken: crypto.randomUUID(),
+        },
+        recipients: [recipientFsdUrn],
+        trackingId: trackingId(),
+        dedupeByClientGeneratedToken: false,
+      }),
+    });
+    if (rRetry.ok) return { success: true, connectionStatus: "CONNECTED" };
+    const retryBody = await rRetry.text().catch(() => "");
+    console.log("[linkdm] Dash createConversation also failed:", rRetry.status, retryBody.slice(0, 150));
+
+    // Both APIs failed — try conversation lookup in case there's an existing thread
+    const enc = encodeURIComponent(recipientFsdUrn);
+    const cr = await li(`/voyager/api/voyagerMessagingDashMessengerConversations?q=participants&recipientUrns=List(${enc})`);
+    const cd = cr.ok ? await cr.json() : null;
+    const existingUrn = (cd?.elements || [])[0]?.entityUrn ?? null;
+    if (existingUrn) {
+      console.log("[linkdm] Found existing conversation — sending via createMessage");
+      const mr = await li("/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage", {
+        method: "POST",
+        body: JSON.stringify({
+          message: { body: { attributes: [], text: messageText }, renderContentUnions: [], conversationUrn: existingUrn, originToken: crypto.randomUUID() },
+          mailboxUrn: senderFsdUrn,
+          trackingId: trackingId(),
+          dedupeByClientGeneratedToken: false,
+        }),
+      });
+      if (mr.ok) return { success: true, connectionStatus: "CONNECTED" };
+      const mb = await mr.text().catch(() => "");
+      return { success: false, error: `createMessage_${mr.status}: ${mb.slice(0, 150)}`, connectionStatus: "CONNECTED" };
     }
 
-    if (isConnected) {
-      // Already connected — try the conversation lookup + createMessage flow,
-      // which works even when legacy createConversation is blocked
-      console.log("[linkdm] 403 but connected — retrying via conversation lookup");
-      const enc = encodeURIComponent(recipientFsdUrn);
-      const cr = await li(`/voyager/api/voyagerMessagingDashMessengerConversations?q=participants&recipientUrns=List(${enc})`);
-      const cd = cr.ok ? await cr.json() : null;
-      const existingUrn = (cd?.elements || [])[0]?.entityUrn ?? null;
-      if (existingUrn) {
-        const mr = await li("/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage", {
-          method: "POST",
-          body: JSON.stringify({
-            message: { body: { attributes: [], text: messageText }, renderContentUnions: [], conversationUrn: existingUrn, originToken: crypto.randomUUID() },
-            mailboxUrn: senderFsdUrn,
-            trackingId: trackingId(),
-            dedupeByClientGeneratedToken: false,
-          }),
-        });
-        if (mr.ok) return { success: true };
-        const mb = await mr.text().catch(() => "");
-        return { success: false, error: `CONNECTED_createMessage_${mr.status}: ${mb.slice(0, 150)}`, connectionStatus: "CONNECTED" };
-      }
-      return { success: false, error: "CONNECTED_but_no_conversation_found", connectionStatus: "CONNECTED" };
-    }
+    // No existing conversation and Dash also 403 — they're not connected
+    console.log("[linkdm] Not connected — falling back to connection request");
 
     // Not connected — try sending a connection request with the message as the note.
     // LinkedIn caps connection notes at 300 characters.
