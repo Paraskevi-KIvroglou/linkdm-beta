@@ -157,37 +157,29 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
     bA = await rA.text().catch(() => "");
   }
 
-  // 403 from legacy API — could mean connections-only inbox OR not connected.
-  // Instead of an unreliable distance check, try the Dash createConversation API
-  // directly — it works for 1st-degree connections. Only fall through to
-  // connection requests if this also fails.
+  // 403 from legacy API — try all DM paths before giving up.
   if (rA?.status === 403) {
-    console.log("[linkdm] Legacy API 403 — trying Dash createConversation");
-    const rRetry = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
+    // Step 1: try Dash createConversation (works for connected users)
+    const rDash = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
       method: "POST",
       body: JSON.stringify({
         mailboxUrn: senderFsdUrn,
-        message: {
-          body: { attributes: [], text: messageText },
-          renderContentUnions: [],
-          originToken: crypto.randomUUID(),
-        },
+        message: { body: { attributes: [], text: messageText }, renderContentUnions: [], originToken: crypto.randomUUID() },
         recipients: [recipientFsdUrn],
         trackingId: trackingId(),
         dedupeByClientGeneratedToken: false,
       }),
     });
-    if (rRetry.ok) return { success: true, connectionStatus: "CONNECTED" };
-    const retryBody = await rRetry.text().catch(() => "");
-    console.log("[linkdm] Dash createConversation also failed:", rRetry.status, retryBody.slice(0, 150));
+    if (rDash.ok) return { success: true };
+    const dashBody = await rDash.text().catch(() => "");
+    console.log(`[linkdm] Dash createConversation: ${rDash.status} ${dashBody.slice(0, 100)}`);
 
-    // Both APIs failed — try conversation lookup in case there's an existing thread
+    // Step 2: look for an existing conversation thread
     const enc = encodeURIComponent(recipientFsdUrn);
     const cr = await li(`/voyager/api/voyagerMessagingDashMessengerConversations?q=participants&recipientUrns=List(${enc})`);
     const cd = cr.ok ? await cr.json() : null;
     const existingUrn = (cd?.elements || [])[0]?.entityUrn ?? null;
     if (existingUrn) {
-      console.log("[linkdm] Found existing conversation — sending via createMessage");
       const mr = await li("/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage", {
         method: "POST",
         body: JSON.stringify({
@@ -197,21 +189,15 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
           dedupeByClientGeneratedToken: false,
         }),
       });
-      if (mr.ok) return { success: true, connectionStatus: "CONNECTED" };
+      if (mr.ok) return { success: true };
       const mb = await mr.text().catch(() => "");
-      return { success: false, error: `createMessage_${mr.status}: ${mb.slice(0, 150)}`, connectionStatus: "CONNECTED" };
+      return { success: false, error: `createMessage_${mr.status}: ${mb.slice(0, 150)}` };
     }
 
-    // No existing conversation and Dash also 403 — they're not connected
-    console.log("[linkdm] Not connected — falling back to connection request");
-
-    // Not connected — try sending a connection request with the message as the note.
-    // LinkedIn caps connection notes at 300 characters.
+    // Step 3: all DM paths failed — try a connection request (only valid if NOT connected).
+    // If they're already connected, LinkedIn returns 400 on the invite → report DM_BLOCKED.
     const note = messageText.slice(0, 300);
-    const errors = [];
-
-    // Attempt 1: Dash relationships API (current format as of 2024)
-    const invR1 = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
+    const invR = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
       method: "POST",
       body: JSON.stringify({
         invitee: {
@@ -222,48 +208,16 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
         customMessage: note,
       }),
     });
-    if (invR1.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-    const invB1 = await invR1.text().catch(() => "");
-    errors.push(`dashV2_${invR1.status}:${invB1.slice(0, 120)}`);
+    if (invR.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
+    const invBody = await invR.text().catch(() => "");
 
-    // Attempt 2: Dash relationships API (older flat body shape)
-    const invR2 = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
-      method: "POST",
-      body: JSON.stringify({
-        inviteeUrn: recipientFsdUrn,
-        customMessage: note,
-      }),
-    });
-    if (invR2.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-    const invB2 = await invR2.text().catch(() => "");
-    errors.push(`dashV1_${invR2.status}:${invB2.slice(0, 120)}`);
-
-    // Attempt 3: legacy normInvitations API — try with trailing slash (avoids 301 redirect)
-    const publicId2 = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
-    if (publicId2) {
-      const legBody = JSON.stringify({
-        invitee: {
-          "com.linkedin.voyager.growth.invitation.InviteeProfile": {
-            profileId: publicId2,
-          },
-        },
-        trackingId: trackingId(),
-        message: note,
-      });
-      const invR3 = await li("/voyager/api/growth/normInvitations/", {
-        method: "POST",
-        body: legBody,
-      });
-      if (invR3.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-      const invB3 = await invR3.text().catch(() => "");
-      errors.push(`legacy_${invR3.status}:${invB3.slice(0, 120)}`);
+    // 400 on connection request = already connected but DM is blocked by their privacy settings
+    if (invR.status === 400) {
+      return { success: false, error: `DM_BLOCKED: legacy_${rA.status} dash_${rDash.status} — connected but inbox is private`, connectionStatus: "CONNECTED" };
     }
 
-    return {
-      success: false,
-      error: `CONNECT_REQUEST_FAILED: ${errors.join(" | ")}`,
-      connectionStatus: "NOT_CONNECTED",
-    };
+    // Truly not connected and connection request also failed
+    return { success: false, error: `NOT_CONNECTED_invite_${invR.status}: ${invBody.slice(0, 150)}`, connectionStatus: "NOT_CONNECTED" };
   }
 
   // Format B: newer Dash API as fallback
