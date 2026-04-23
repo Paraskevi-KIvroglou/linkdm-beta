@@ -410,8 +410,13 @@ async function runCampaignLoop() {
       return;
     }
 
+    if (fetchResult?.error) {
+      console.warn(`[linkdm] Fetch commenters error for campaign ${campaign._id}: ${fetchResult.error}`);
+      continue;
+    }
+
     if (!fetchResult?.commenters?.length) {
-      console.log(`[linkdm] No commenters found for campaign ${campaign._id}`);
+      console.log(`[linkdm] No commenters on post yet for campaign ${campaign._id} (postUrl: ${campaign.postUrl})`);
       continue;
     }
 
