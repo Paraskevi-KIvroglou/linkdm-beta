@@ -80,6 +80,16 @@
   <button id="action-btn" type="button">Connect</button>
   <button id="open-li-btn" class="secondary" type="button" style="display:none">Open LinkedIn</button>
 
+  <!-- Failed DMs list -->
+  <div id="failed-section" style="display:none; margin-top:10px">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
+      <span style="font-size:12px; font-weight:600; color:#6b7280">Couldn't reach</span>
+      <button id="clear-failed-btn" class="secondary" type="button"
+        style="width:auto; padding:2px 8px; font-size:11px">Clear</button>
+    </div>
+    <div id="failed-list"></div>
+  </div>
+
   <p class="hint">
     Get your token from the
     <a href="https://beta-login-tawny.vercel.app/dashboard" target="_blank">

@@ -264,8 +264,9 @@ async function runCampaignLoop() {
     return;
   }
 
-  // Load the local deduplication cache (profileIds already DM'd per campaign)
-  const { dmedProfiles = {} } = await chrome.storage.local.get("dmedProfiles");
+  // Load the local deduplication caches
+  const { dmedProfiles = {} }   = await chrome.storage.local.get("dmedProfiles");
+  const { failedProfiles = {} } = await chrome.storage.local.get("failedProfiles");
 
   for (const campaign of campaigns) {
     // Skip campaigns that have hit their daily limit
@@ -304,10 +305,12 @@ async function runCampaignLoop() {
       continue;
     }
 
-    // Filter: skip already-DM'd profiles and those who don't match the keyword
-    const alreadyDmed = new Set(dmedProfiles[campaign._id] || []);
+    // Filter: skip already-DM'd, already-failed, and keyword-mismatched profiles
+    const alreadyDmed    = new Set(dmedProfiles[campaign._id] || []);
+    const alreadyFailed  = new Set((failedProfiles[campaign._id] || []).map(f => f.profileId));
     const eligible = fetchResult.commenters.filter((c) => {
-      if (alreadyDmed.has(c.profileId)) return false;
+      if (alreadyDmed.has(c.profileId))   return false;
+      if (alreadyFailed.has(c.profileId)) return false;
       if (
         campaign.keywordFilter &&
         !c.commentText.toLowerCase().includes(campaign.keywordFilter.toLowerCase())
@@ -317,11 +320,11 @@ async function runCampaignLoop() {
       return true;
     });
 
-    // Check if campaign is complete (all commenters have been DM'd)
-    const allDone =
+    // Check if campaign is complete (all commenters DM'd or permanently failed)
+    const allHandled =
       fetchResult.commenters.length > 0 &&
-      fetchResult.commenters.every((c) => alreadyDmed.has(c.profileId));
-    if (allDone) {
+      fetchResult.commenters.every((c) => alreadyDmed.has(c.profileId) || alreadyFailed.has(c.profileId));
+    if (allHandled) {
       await showNotification(`complete-${campaign._id}`, {
         title: "linkdm — Campaign complete!",
         message:
@@ -332,7 +335,7 @@ async function runCampaignLoop() {
 
     if (eligible.length === 0) {
       console.log(
-        `[linkdm] No eligible commenters for campaign ${campaign._id} (all filtered by keyword)`
+        `[linkdm] No eligible commenters for campaign ${campaign._id} (all filtered or handled)`
       );
       continue;
     }
@@ -359,8 +362,25 @@ async function runCampaignLoop() {
     }
 
     const status = dmResult?.success ? "sent" : "failed";
-    if (!dmResult?.success) {
-      console.warn(`[linkdm] DM error for ${next.profileName}:`, dmResult?.error);
+
+    if (status === "sent") {
+      // Mark as done — never DM this person again for this campaign
+      if (!dmedProfiles[campaign._id]) dmedProfiles[campaign._id] = [];
+      dmedProfiles[campaign._id].push(next.profileId);
+      await chrome.storage.local.set({ dmedProfiles });
+    } else {
+      // Mark as permanently failed — skip on all future ticks
+      const reason = dmResult?.error ?? "unknown error";
+      console.warn(`[linkdm] DM failed for ${next.profileName}: ${reason}`);
+      if (!failedProfiles[campaign._id]) failedProfiles[campaign._id] = [];
+      failedProfiles[campaign._id].push({
+        profileId:   next.profileId,
+        profileName: next.profileName,
+        profileUrl:  next.profileUrl,
+        error:       reason,
+        failedAt:    Date.now(),
+      });
+      await chrome.storage.local.set({ failedProfiles });
     }
 
     // Report result to Convex backend
@@ -372,10 +392,10 @@ async function runCampaignLoop() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          campaignId: campaign._id,
-          profileId: next.profileId,
-          profileName: next.profileName,
-          profileUrl: next.profileUrl,
+          campaignId:   campaign._id,
+          profileId:    next.profileId,
+          profileName:  next.profileName,
+          profileUrl:   next.profileUrl,
           status,
           errorMessage: dmResult?.error,
         }),
@@ -385,14 +405,6 @@ async function runCampaignLoop() {
       }
     } catch (err) {
       console.error("[linkdm] Failed to log DM to Convex:", err);
-    }
-
-    // Only mark as done if the DM was actually sent.
-    // Failed sends are NOT cached — they will be retried on the next tick.
-    if (status === "sent") {
-      if (!dmedProfiles[campaign._id]) dmedProfiles[campaign._id] = [];
-      dmedProfiles[campaign._id].push(next.profileId);
-      await chrome.storage.local.set({ dmedProfiles });
     }
 
     // Reply to the comment if a reply template is configured

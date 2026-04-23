@@ -116,16 +116,56 @@ async function disconnect() {
   showDisconnected();
 }
 
+// ── Failed DMs ────────────────────────────────────────────────────────────────
+
+function friendlyError(raw) {
+  if (!raw) return "Unknown reason";
+  if (raw.includes("SESSION_EXPIRED") || raw.includes("NO_CSRF")) return "LinkedIn session expired";
+  if (raw.includes("400")) return "Message blocked by LinkedIn";
+  if (raw.includes("401")) return "LinkedIn session expired";
+  if (raw.includes("403")) return "Not allowed to message this person";
+  if (raw.includes("PROFILE_LOOKUP")) return "Couldn't find this person's profile";
+  if (raw.includes("ME_NO_URN") || raw.includes("COULD_NOT_GET")) return "Couldn't identify your account";
+  return "Message couldn't be delivered";
+}
+
+async function renderFailedList() {
+  const failedSection = document.getElementById("failed-section");
+  const failedList    = document.getElementById("failed-list");
+  const { failedProfiles = {} } = await chrome.storage.local.get("failedProfiles");
+
+  // Flatten all campaigns' failures into one list
+  const all = Object.values(failedProfiles).flat();
+  if (!all.length) {
+    failedSection.style.display = "none";
+    return;
+  }
+
+  failedSection.style.display = "";
+  failedList.innerHTML = all.map(f => `
+    <div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f3f4f6; color:#374151">
+      <span style="font-weight:500">${f.profileName}</span>
+      <span style="color:#9ca3af; margin-left:4px">— ${friendlyError(f.error)}</span>
+    </div>
+  `).join("");
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 openLiBtn.onclick = () => {
   chrome.tabs.create({ url: "https://www.linkedin.com/feed/" });
 };
 
+document.getElementById("clear-failed-btn").onclick = async () => {
+  await chrome.storage.local.remove("failedProfiles");
+  renderFailedList();
+};
+
 async function init() {
   const { token } = await chrome.storage.local.get("token");
   if (token) {
     await showConnected();
+    await renderFailedList();
   } else {
     showDisconnected();
   }
