@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const revokeToken = useMutation(api.extensionToken.revoke);
   const approveUser = useMutation(api.waitlist.approveUser);
   const pending = useQuery(api.waitlist.listPending);
+  const sessionStatus = useQuery(api.linkedinSessions.getSessionStatus);
   const [token, setToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
@@ -173,6 +174,53 @@ export default function DashboardPage() {
             >
               Show my token
             </button>
+          )}
+        </div>
+
+        {/* LinkedIn Connection */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-sm font-semibold text-gray-700">LinkedIn Connection</h2>
+            {sessionStatus?.status === "active" && (
+              <span className="text-xs text-green-600 font-medium">● Active</span>
+            )}
+            {sessionStatus?.status === "expired" && (
+              <span className="text-xs text-red-600 font-medium">● Expired</span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Sync your LinkedIn session from the Chrome extension to run campaigns in the cloud 24/7.
+          </p>
+          {sessionStatus === undefined && (
+            <p className="text-sm text-gray-400">Loading…</p>
+          )}
+          {sessionStatus === null && (
+            <p className="text-sm text-gray-500">
+              No session synced yet. Open the linkdm extension popup and click <strong>Sync LinkedIn session</strong>.
+            </p>
+          )}
+          {sessionStatus?.status === "active" && (
+            <p className="text-sm text-green-700">
+              ✅ Session active — last synced{" "}
+              {sessionStatus.syncedAt
+                ? new Date(sessionStatus.syncedAt).toLocaleString()
+                : "unknown"}
+              . Cloud campaigns are running.
+            </p>
+          )}
+          {sessionStatus?.status === "expired" && (
+            <div>
+              <p className="text-sm text-red-700 mb-2">
+                ❌ Your LinkedIn session expired on{" "}
+                {sessionStatus.expiresAt
+                  ? new Date(sessionStatus.expiresAt).toLocaleString()
+                  : "unknown"}
+                . All campaigns have been paused.
+              </p>
+              <p className="text-xs text-gray-500">
+                Open the linkdm Chrome extension, make sure you're logged into LinkedIn, then click <strong>Sync LinkedIn session</strong>.
+              </p>
+            </div>
           )}
         </div>
 
