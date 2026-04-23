@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { ActionCtx } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { auth } from "./auth";
+import { encryptCookie, verifyHmac } from "./crypto";
 
 const http = httpRouter();
 
@@ -148,6 +149,87 @@ http.route({
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers: jsonHeaders,
+    });
+  }),
+});
+
+// CORS preflight for /api/extension/sync-session
+http.route({
+  path: "/api/extension/sync-session",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }),
+});
+
+// POST /api/extension/sync-session
+// Accepts LinkedIn cookies from the Chrome extension, encrypts them, stores in Convex.
+// Requires: Authorization: Bearer <extensionToken>
+//           X-Timestamp: <epoch seconds>
+//           X-Signature: HMAC-SHA256(LINKEDIN_SYNC_HMAC_SECRET, "timestamp=<epoch>") as hex
+http.route({
+  path: "/api/extension/sync-session",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const userId = await resolveToken(ctx, req);
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: jsonHeaders,
+      });
+    }
+
+    const timestamp = req.headers.get("X-Timestamp") ?? "";
+    const signature = req.headers.get("X-Signature") ?? "";
+    const hmacSecret = process.env.LINKEDIN_SYNC_HMAC_SECRET ?? "";
+    const encKey = process.env.LINKEDIN_COOKIE_ENCRYPTION_KEY ?? "";
+
+    if (!hmacSecret || !encKey || encKey.length !== 64) {
+      return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
+        status: 500, headers: jsonHeaders,
+      });
+    }
+
+    // Reject requests outside 5-minute window
+    const nowSec = Math.floor(Date.now() / 1000);
+    const tsSec = parseInt(timestamp, 10);
+    if (isNaN(tsSec) || Math.abs(nowSec - tsSec) > 300) {
+      return new Response(JSON.stringify({ error: "Timestamp out of range" }), {
+        status: 401, headers: jsonHeaders,
+      });
+    }
+
+    if (!(await verifyHmac(hmacSecret, timestamp, signature))) {
+      return new Response(JSON.stringify({ error: "Invalid signature" }), {
+        status: 401, headers: jsonHeaders,
+      });
+    }
+
+    let body: Record<string, unknown>;
+    try { body = await req.json(); }
+    catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+        status: 400, headers: jsonHeaders,
+      });
+    }
+
+    const { liAt, jsessionId, userAgent } = body;
+    if (typeof liAt !== "string" || !liAt ||
+        typeof jsessionId !== "string" || !jsessionId ||
+        typeof userAgent !== "string" || !userAgent) {
+      return new Response(JSON.stringify({ error: "Missing required fields: liAt, jsessionId, userAgent" }), {
+        status: 400, headers: jsonHeaders,
+      });
+    }
+
+    const encLiAt = await encryptCookie(liAt, encKey);
+    const encJsessionId = await encryptCookie(jsessionId, encKey);
+
+    await ctx.runMutation(internal.linkedinSessions.upsertSession, {
+      userId, liAt: encLiAt, jsessionId: encJsessionId, userAgent,
+    });
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200, headers: jsonHeaders,
     });
   }),
 });
