@@ -141,12 +141,19 @@ async function renderFailedList() {
   }
 
   failedSection.style.display = "";
-  failedList.innerHTML = all.map(f => `
-    <div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f3f4f6; color:#374151">
-      <span style="font-weight:500">${f.profileName}</span>
-      <span style="color:#9ca3af; margin-left:4px">— ${friendlyError(f.error)}</span>
-    </div>
-  `).join("");
+  failedList.innerHTML = all.map(f => {
+    const reason = friendlyError(f.error);
+    const connTag = f.connectionStatus === "CONNECTED"
+      ? `<span style="color:#059669; margin-left:4px">· connected</span>`
+      : f.connectionStatus === "NOT_CONNECTED"
+        ? `<span style="color:#9ca3af; margin-left:4px">· not connected</span>`
+        : "";
+    return `
+      <div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f3f4f6; color:#374151">
+        <span style="font-weight:500">${f.profileName}</span>${connTag}
+        <div style="color:#9ca3af; font-size:11px">${reason}</div>
+      </div>`;
+  }).join("");
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

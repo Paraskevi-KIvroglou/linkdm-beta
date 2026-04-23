@@ -41,7 +41,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // chrome.scripting.executeScript. Running in MAIN world means it uses
 // LinkedIn's monkey-patched window.fetch, which adds the proprietary headers
 // their API requires (avoiding the 400 that clean fetch calls get).
-async function linkedInSendDm(recipientUrn, messageText) {
+async function linkedInSendDm(recipientUrn, messageText, profileUrl) {
   // ── helpers (must be self-contained — no closure access) ──────────────────
   function csrf() {
     const m = document.cookie.match(/JSESSIONID="?([^";]+)"?/);
@@ -149,10 +149,49 @@ async function linkedInSendDm(recipientUrn, messageText) {
   if (rA.ok) return { success: true };
   const bA = await rA.text().catch(() => "");
 
-  // 403 = recipient has messaging restrictions (connections-only etc.)
-  // Treat as permanent failure so we skip them and move on
+  // 403 = LinkedIn understood the request but blocked it (connections-only, etc.)
+  // Check if sender is actually connected with recipient — if so, retry via
+  // the conversation endpoint which works for 1st-degree connections.
   if (rA.status === 403) {
-    return { success: false, error: `RECIPIENT_RESTRICTED_403: ${bA.slice(0, 150)}` };
+    const publicId = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
+    let isConnected = false;
+    if (publicId) {
+      try {
+        const r = await li(`/voyager/api/identity/profiles/${publicId}?projection=(distance)`);
+        if (r.ok) {
+          const d = await r.json();
+          const dist = d?.data?.distance?.value ?? d?.distance?.value ?? "";
+          isConnected = dist === "DISTANCE_1";
+        }
+      } catch {}
+    }
+
+    if (isConnected) {
+      // Already connected — try the conversation lookup + createMessage flow,
+      // which works even when legacy createConversation is blocked
+      console.log("[linkdm] 403 but connected — retrying via conversation lookup");
+      const enc = encodeURIComponent(recipientFsdUrn);
+      const cr = await li(`/voyager/api/voyagerMessagingDashMessengerConversations?q=participants&recipientUrns=List(${enc})`);
+      const cd = cr.ok ? await cr.json() : null;
+      const existingUrn = (cd?.elements || [])[0]?.entityUrn ?? null;
+      if (existingUrn) {
+        const mr = await li("/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage", {
+          method: "POST",
+          body: JSON.stringify({
+            message: { body: { attributes: [], text: messageText }, renderContentUnions: [], conversationUrn: existingUrn, originToken: crypto.randomUUID() },
+            mailboxUrn: senderFsdUrn,
+            trackingId: trackingId(),
+            dedupeByClientGeneratedToken: false,
+          }),
+        });
+        if (mr.ok) return { success: true };
+        const mb = await mr.text().catch(() => "");
+        return { success: false, error: `CONNECTED_createMessage_${mr.status}: ${mb.slice(0, 150)}`, connectionStatus: "CONNECTED" };
+      }
+      return { success: false, error: "CONNECTED_but_no_conversation_found", connectionStatus: "CONNECTED" };
+    }
+
+    return { success: false, error: `NOT_CONNECTED_RESTRICTED_403: ${bA.slice(0, 150)}`, connectionStatus: "NOT_CONNECTED" };
   }
 
   // Format B: newer Dash API as fallback
@@ -361,7 +400,7 @@ async function runCampaignLoop() {
         target: { tabId: linkedinTab.id },
         world: "MAIN",
         func: linkedInSendDm,
-        args: [next.profileFsdUrn || next.profileId, campaign.messageTemplate],
+        args: [next.profileFsdUrn || next.profileId, campaign.messageTemplate, next.profileUrl],
       });
       dmResult = execResults?.[0]?.result ?? { success: false, error: "SCRIPT_EXEC_NO_RESULT" };
     } catch (err) {
@@ -382,11 +421,12 @@ async function runCampaignLoop() {
       console.warn(`[linkdm] DM failed for ${next.profileName}: ${reason}`);
       if (!failedProfiles[campaign._id]) failedProfiles[campaign._id] = [];
       failedProfiles[campaign._id].push({
-        profileId:   next.profileId,
-        profileName: next.profileName,
-        profileUrl:  next.profileUrl,
-        error:       reason,
-        failedAt:    Date.now(),
+        profileId:        next.profileId,
+        profileName:      next.profileName,
+        profileUrl:       next.profileUrl,
+        error:            reason,
+        connectionStatus: dmResult?.connectionStatus ?? "UNKNOWN",
+        failedAt:         Date.now(),
       });
       await chrome.storage.local.set({ failedProfiles });
     }
@@ -400,12 +440,13 @@ async function runCampaignLoop() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          campaignId:   campaign._id,
-          profileId:    next.profileId,
-          profileName:  next.profileName,
-          profileUrl:   next.profileUrl,
+          campaignId:       campaign._id,
+          profileId:        next.profileId,
+          profileName:      next.profileName,
+          profileUrl:       next.profileUrl,
           status,
-          errorMessage: dmResult?.error,
+          errorMessage:     dmResult?.error,
+          connectionStatus: dmResult?.connectionStatus,
         }),
       });
       if (!logRes.ok) {

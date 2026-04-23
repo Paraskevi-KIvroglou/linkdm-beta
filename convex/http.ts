@@ -109,7 +109,7 @@ http.route({
     }
 
     // Fix 2: Validate required POST body fields
-    const { campaignId, profileId, profileName, profileUrl, status, errorMessage } = body;
+    const { campaignId, profileId, profileName, profileUrl, status, errorMessage, connectionStatus } = body;
     const VALID_STATUS = new Set(["sent", "failed", "skipped"]);
 
     if (
@@ -141,8 +141,8 @@ http.route({
       profileName,
       profileUrl,
       status: status as "sent" | "failed" | "skipped",
-      // Fix 5: Cap errorMessage length
-      errorMessage: typeof errorMessage === "string" ? errorMessage.slice(0, 500) : undefined,
+      errorMessage:     typeof errorMessage === "string" ? errorMessage.slice(0, 500) : undefined,
+      connectionStatus: typeof connectionStatus === "string" ? connectionStatus : undefined,
     });
 
     return new Response(JSON.stringify({ success: true }), {

@@ -43,7 +43,8 @@ export default defineSchema({
       v.literal("skipped")
     ),
     sentAt: v.number(),
-    errorMessage: v.optional(v.string()),
+    errorMessage:     v.optional(v.string()),
+    connectionStatus: v.optional(v.string()),
   })
     .index("by_campaignId_and_profileId", ["campaignId", "profileId"])
     .index("by_campaignId_and_status_and_sentAt", [

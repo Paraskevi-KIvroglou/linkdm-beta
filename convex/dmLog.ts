@@ -13,7 +13,8 @@ export const logDm = internalMutation({
       v.literal("failed"),
       v.literal("skipped")
     ),
-    errorMessage: v.optional(v.string()),
+    errorMessage:     v.optional(v.string()),
+    connectionStatus: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("dmLog", {
