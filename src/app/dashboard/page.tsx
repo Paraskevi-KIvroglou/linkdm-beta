@@ -4,10 +4,12 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function DashboardPage() {
   const { signOut } = useAuthActions();
+  const router = useRouter();
   const getOrCreateToken = useMutation(api.extensionToken.getOrCreate);
   const regenerateToken = useMutation(api.extensionToken.regenerate);
   const revokeToken = useMutation(api.extensionToken.revoke);
@@ -68,7 +70,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold text-gray-900">🔗 linkdm</h1>
           <button
-            onClick={() => signOut()}
+            onClick={() => signOut().then(() => router.push("/login"))}
             className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
           >
             Sign out
