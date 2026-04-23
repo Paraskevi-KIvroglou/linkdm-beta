@@ -116,7 +116,7 @@ async function connect() {
 
 async function disconnect() {
   try {
-    await chrome.storage.local.remove(["token", "dmedProfiles", "nextSendAt"]);
+    await chrome.storage.local.remove(["token", "dmedProfiles", "nextSendAt", "failedProfiles", "sessionStatus", "sessionSyncedAt"]);
   } catch {
     // ignore storage errors
   }

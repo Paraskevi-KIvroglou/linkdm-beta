@@ -590,16 +590,30 @@ async function extractAndSyncLinkedInSession(extensionToken) {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    const res = await fetch(`${CONVEX_SITE_URL}/api/extension/sync-session`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${extensionToken}`,
-        "X-Timestamp": timestamp,
-        "X-Signature": signature,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ liAt, jsessionId, userAgent: navigator.userAgent }),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let res;
+    try {
+      res = await fetch(`${CONVEX_SITE_URL}/api/extension/sync-session`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Authorization": `Bearer ${extensionToken}`,
+          "X-Timestamp": timestamp,
+          "X-Signature": signature,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ liAt, jsessionId, userAgent: navigator.userAgent }),
+      });
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      if (fetchErr.name === "AbortError") {
+        return { success: false, error: "Connection timed out — please check your internet and try again." };
+      }
+      throw fetchErr; // re-throw for the outer catch
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
