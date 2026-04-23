@@ -97,3 +97,63 @@ test("listActiveByUserId returns only active campaigns for that user", async () 
   expect(active).toHaveLength(1);
   expect(active[0].status).toBe("active");
 });
+
+test("listAllActive returns active campaigns from multiple users", async () => {
+  const t = convexTest(schema, modules);
+  // Create campaigns for two different users
+  const user1 = t.withIdentity({ tokenIdentifier: "user1" });
+  const user2 = t.withIdentity({ tokenIdentifier: "user2" });
+  await user1.mutation(api.campaigns.create, {
+    postUrl: "https://www.linkedin.com/feed/update/urn:li:activity:111",
+    messageTemplate: "Hi {{firstName}}",
+  });
+  await user2.mutation(api.campaigns.create, {
+    postUrl: "https://www.linkedin.com/feed/update/urn:li:activity:222",
+    messageTemplate: "Hello {{firstName}}",
+  });
+  const active = await t.query(internal.campaigns.listAllActive, {});
+  expect(active.length).toBe(2);
+  expect(active.every((c) => c.status === "active")).toBe(true);
+});
+
+test("listAllActive does not return paused campaigns", async () => {
+  const t = convexTest(schema, modules);
+  const user1 = t.withIdentity({ tokenIdentifier: "user1" });
+  const campaignId = await user1.mutation(api.campaigns.create, {
+    postUrl: "https://www.linkedin.com/feed/update/urn:li:activity:111",
+    messageTemplate: "Hi {{firstName}}",
+  });
+  await user1.mutation(api.campaigns.updateStatus, { campaignId, status: "paused" });
+  const active = await t.query(internal.campaigns.listAllActive, {});
+  expect(active.length).toBe(0);
+});
+
+test("pauseAllForUser pauses only that user's active campaigns", async () => {
+  const t = convexTest(schema, modules);
+  const user1 = t.withIdentity({ tokenIdentifier: "user1" });
+  const user2 = t.withIdentity({ tokenIdentifier: "user2" });
+
+  await user1.mutation(api.campaigns.create, {
+    postUrl: "https://www.linkedin.com/feed/update/urn:li:activity:111",
+    messageTemplate: "Hi",
+  });
+  const user2CampaignId = await user2.mutation(api.campaigns.create, {
+    postUrl: "https://www.linkedin.com/feed/update/urn:li:activity:222",
+    messageTemplate: "Hello",
+  });
+
+  // Get user1's userId via identity
+  let user1Id: string | null = null;
+  await user1.run(async (ctx) => {
+    const { getAuthUserId } = await import("@convex-dev/auth/server");
+    user1Id = await getAuthUserId(ctx);
+    if (!user1Id) throw new Error("user1 identity did not resolve");
+  });
+
+  await t.mutation(internal.campaigns.pauseAllForUser, { userId: user1Id! });
+
+  // user1's campaign should be paused
+  const allActive = await t.query(internal.campaigns.listAllActive, {});
+  expect(allActive.length).toBe(1);
+  expect(allActive[0]._id).toBe(user2CampaignId);
+});
