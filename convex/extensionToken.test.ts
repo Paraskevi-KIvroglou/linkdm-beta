@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -34,11 +35,13 @@ test("regenerate creates a new token and invalidates old one", async () => {
 
 test("getUserIdByToken returns userId for a valid token", async () => {
   const t = convexTest(schema, modules);
-  const token = await t
-    .withIdentity({ tokenIdentifier: "user1" })
-    .mutation(api.extensionToken.getOrCreate, {});
+  const asUser = t.withIdentity({ tokenIdentifier: "user1" });
+  // Resolve the actual internal userId assigned by Convex auth (not the tokenIdentifier string)
+  const resolvedId = await asUser.run(async (ctx) => getAuthUserId(ctx));
+  if (!resolvedId) throw new Error("convex-test: auth identity did not resolve to a userId");
+  const token = await asUser.mutation(api.extensionToken.getOrCreate, {});
   const userId = await t.query(internal.extensionToken.getUserIdByToken, { token });
-  expect(userId).toBe("user1");
+  expect(userId).toBe(resolvedId.toString());
 });
 
 test("getUserIdByToken returns null for an unknown token", async () => {

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -20,16 +21,18 @@ test("extensionTokens table is defined in schema", () => {
 
 test("create saves a campaign with default dailyLimit of 20", async () => {
   const t = convexTest(schema, modules);
-  const id = await t
-    .withIdentity({ tokenIdentifier: "user1" })
-    .mutation(api.campaigns.create, {
-      postUrl: "https://linkedin.com/feed/update/urn:li:activity:123",
-      messageTemplate: "Hey, saw your comment!",
-    });
+  const asUser = t.withIdentity({ tokenIdentifier: "user1" });
+  // Resolve the actual internal userId assigned by Convex auth (not the tokenIdentifier string)
+  const resolvedId = await asUser.run(async (ctx) => getAuthUserId(ctx));
+  if (!resolvedId) throw new Error("convex-test: auth identity did not resolve to a userId");
+  const id = await asUser.mutation(api.campaigns.create, {
+    postUrl: "https://linkedin.com/feed/update/urn:li:activity:123",
+    messageTemplate: "Hey, saw your comment!",
+  });
   const campaign = await t.query(internal.campaigns.getById, { campaignId: id });
   expect(campaign?.dailyLimit).toBe(20);
   expect(campaign?.status).toBe("active");
-  expect(campaign?.userId).toBe("user1");
+  expect(campaign?.userId).toBe(resolvedId.toString());
 });
 
 test("create respects custom dailyLimit", async () => {
@@ -77,6 +80,10 @@ test("listActiveByUserId returns only active campaigns for that user", async () 
   const asUser1 = t.withIdentity({ tokenIdentifier: "user1" });
   const asUser2 = t.withIdentity({ tokenIdentifier: "user2" });
 
+  // Resolve the actual internal userId for user1 (Convex auth returns an internal ID, not tokenIdentifier)
+  const resolvedUser1Id = await asUser1.run(async (ctx) => getAuthUserId(ctx));
+  if (!resolvedUser1Id) throw new Error("convex-test: auth identity did not resolve to a userId");
+
   const id1 = await asUser1.mutation(api.campaigns.create, {
     postUrl: "https://linkedin.com/feed/update/urn:li:activity:111",
     messageTemplate: "Hey!",
@@ -93,7 +100,7 @@ test("listActiveByUserId returns only active campaigns for that user", async () 
     messageTemplate: "Hey!",
   });
 
-  const active = await t.query(internal.campaigns.listActiveByUserId, { userId: "user1" });
+  const active = await t.query(internal.campaigns.listActiveByUserId, { userId: resolvedUser1Id.toString() });
   expect(active).toHaveLength(1);
   expect(active[0].status).toBe("active");
 });
