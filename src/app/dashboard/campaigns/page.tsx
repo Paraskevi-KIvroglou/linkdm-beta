@@ -8,6 +8,7 @@ import Link from "next/link";
 
 export default function CampaignsPage() {
   const campaigns = useQuery(api.campaigns.listByUser);
+  const debug = useQuery(api.debug.whoAmI);
   const createCampaign = useMutation(api.campaigns.create);
   const updateStatus = useMutation(api.campaigns.updateStatus);
   const mergeDuplicates = useMutation(api.campaigns.mergeDuplicateAccounts);
@@ -141,7 +142,7 @@ export default function CampaignsPage() {
                   onChange={(e) => setPostUrl(e.target.value)}
                   required
                   placeholder="https://www.linkedin.com/feed/update/urn:li:activity:..."
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -154,7 +155,7 @@ export default function CampaignsPage() {
                   required
                   rows={3}
                   placeholder="Hey, I saw your comment on my post — would love to connect!"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
               <div>
@@ -166,7 +167,7 @@ export default function CampaignsPage() {
                   onChange={(e) => setReplyTemplate(e.target.value)}
                   rows={2}
                   placeholder="e.g. Thanks for engaging! I sent you a DM 📩"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
                 <p className="text-xs text-gray-400 mt-1">If set, the extension will reply to the commenter's post after sending the DM</p>
               </div>
@@ -180,7 +181,7 @@ export default function CampaignsPage() {
                     value={keywordFilter}
                     onChange={(e) => setKeywordFilter(e.target.value)}
                     placeholder="e.g. interested"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-400 mt-1">Only DM commenters whose comment contains this word</p>
                 </div>
@@ -194,7 +195,7 @@ export default function CampaignsPage() {
                     onChange={(e) => setDailyLimit(e.target.value)}
                     min="1"
                     max="80"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-400 mt-1">Max 20 recommended to stay safe</p>
                 </div>
@@ -298,6 +299,27 @@ export default function CampaignsPage() {
           </div>
         )}
       </div>
+
+      {/* Temporary debug panel — remove after diagnosis */}
+      {debug !== undefined && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1e1e1e", color: "#d4d4d4", fontSize: 11, padding: "8px 12px", fontFamily: "monospace", maxHeight: 180, overflowY: "auto", zIndex: 9999 }}>
+          <strong style={{ color: "#4ec9b0" }}>DEBUG</strong>{" "}
+          userId: <span style={{ color: "#ce9178" }}>{debug.userId ?? "null"}</span>{" "}
+          | email: <span style={{ color: "#ce9178" }}>{debug.user?.email ?? "none"}</span>{" "}
+          | users with this email: <span style={{ color: "#9cdcfe" }}>{debug.allEmailUsers.length}</span>{" "}
+          | campaigns found: <span style={{ color: "#9cdcfe" }}>{debug.allCampaigns.length}</span>
+          {debug.allEmailUsers.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              {debug.allEmailUsers.map((u) => (
+                <div key={u._id}>user {u._id}: {debug.allCampaigns.filter(c => c.userId === u._id).length} campaign(s)</div>
+              ))}
+            </div>
+          )}
+          {debug.allCampaigns.map((c) => (
+            <div key={c._id} style={{ color: "#6a9955" }}>campaign {c._id} → userId {c.userId} | {c.postUrl.slice(0, 60)}</div>
+          ))}
+        </div>
+      )}
     </main>
   );
 }
