@@ -14,7 +14,7 @@ auth.addHttpRoutes(http);
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Timestamp, X-Signature",
 };
 
 const jsonHeaders = {
@@ -183,9 +183,16 @@ http.route({
     const hmacSecret = process.env.LINKEDIN_SYNC_HMAC_SECRET ?? "";
     const encKey = process.env.LINKEDIN_COOKIE_ENCRYPTION_KEY ?? "";
 
-    if (!hmacSecret || !encKey || encKey.length !== 64) {
+    if (!hmacSecret || hmacSecret.length < 32 || !encKey || encKey.length !== 64) {
       return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
         status: 500, headers: jsonHeaders,
+      });
+    }
+
+    // Verify HMAC first (before timestamp check) to avoid timing information leakage
+    if (!(await verifyHmac(hmacSecret, timestamp, signature))) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: jsonHeaders,
       });
     }
 
@@ -193,13 +200,7 @@ http.route({
     const nowSec = Math.floor(Date.now() / 1000);
     const tsSec = parseInt(timestamp, 10);
     if (isNaN(tsSec) || Math.abs(nowSec - tsSec) > 300) {
-      return new Response(JSON.stringify({ error: "Timestamp out of range" }), {
-        status: 401, headers: jsonHeaders,
-      });
-    }
-
-    if (!(await verifyHmac(hmacSecret, timestamp, signature))) {
-      return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: jsonHeaders,
       });
     }

@@ -29,7 +29,11 @@ export async function encryptCookie(plaintext: string, keyHex: string): Promise<
   const combined = new Uint8Array(iv.byteLength + cipher.byteLength);
   combined.set(iv, 0);
   combined.set(new Uint8Array(cipher), iv.byteLength);
-  return btoa(String.fromCharCode(...combined));
+  let binary = "";
+  const CHUNK = 8192;
+  for (let i = 0; i < combined.length; i += CHUNK)
+    binary += String.fromCharCode(...combined.subarray(i, i + CHUNK));
+  return btoa(binary);
 }
 
 /**
