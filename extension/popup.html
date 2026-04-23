@@ -13,15 +13,17 @@
       color: #111827;
     }
     h2 { margin: 0 0 12px; font-size: 16px; color: #0077B5; }
-    .status {
+    .card {
       padding: 10px 12px;
       border-radius: 6px;
-      margin-bottom: 12px;
-      font-size: 14px;
-      line-height: 1.4;
+      margin-bottom: 10px;
+      font-size: 13px;
+      line-height: 1.5;
     }
-    .connected { background: #ecfdf5; color: #065f46; }
-    .disconnected { background: #fffbeb; color: #92400e; }
+    .ok    { background: #ecfdf5; color: #065f46; }
+    .warn  { background: #fffbeb; color: #92400e; }
+    .error { background: #fef2f2; color: #991b1b; }
+    .label { font-weight: 600; margin-bottom: 2px; }
     input {
       width: 100%;
       padding: 8px 10px;
@@ -42,23 +44,44 @@
       font-size: 14px;
       cursor: pointer;
       font-weight: 500;
+      margin-bottom: 6px;
     }
     button:hover { background: #005885; }
+    button.secondary {
+      background: #f3f4f6;
+      color: #374151;
+      font-size: 13px;
+      font-weight: 400;
+    }
+    button.secondary:hover { background: #e5e7eb; }
     button.danger { background: #dc2626; }
     button.danger:hover { background: #b91c1c; }
-    .hint { font-size: 12px; color: #6b7280; margin-top: 10px; }
+    .hint { font-size: 12px; color: #6b7280; margin-top: 8px; }
     .hint a { color: #0077B5; text-decoration: none; }
+    #linkedin-status { display: none; }
   </style>
 </head>
 <body>
   <h2>linkdm</h2>
-  <div id="status" class="status disconnected" aria-live="polite" role="status">
-    ⚠️ Not connected — paste your token below.
+
+  <!-- Token / account status -->
+  <div id="token-card" class="card warn" aria-live="polite" role="status">
+    <div class="label">⚠️ Not connected</div>
+    Paste your token below to start.
   </div>
+
+  <!-- LinkedIn tab status (shown once token is connected) -->
+  <div id="linkedin-card" class="card warn" aria-live="polite" role="status" style="display:none">
+    <div class="label" id="li-title">Checking LinkedIn…</div>
+    <span id="li-detail"></span>
+  </div>
+
   <input id="token-input" type="password" placeholder="lnkdm_..." />
   <button id="action-btn" type="button">Connect</button>
+  <button id="open-li-btn" class="secondary" type="button" style="display:none">Open LinkedIn</button>
+
   <p class="hint">
-    Get your token from
+    Get your token from the
     <a href="https://beta-login-tawny.vercel.app/dashboard" target="_blank">
       linkdm dashboard
     </a>.

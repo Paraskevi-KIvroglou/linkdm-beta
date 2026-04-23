@@ -167,6 +167,7 @@ async function runCampaignLoop() {
       dmResult = await chrome.tabs.sendMessage(linkedinTab.id, {
         type: "SEND_DM",
         profileId: next.profileId,
+        profileFsdUrn: next.profileFsdUrn, // fsd_profile URN needed for new messaging API
         message: campaign.messageTemplate,
       });
     } catch (err) {

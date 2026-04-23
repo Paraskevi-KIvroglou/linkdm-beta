@@ -4,26 +4,43 @@
 // and keeps the service worker alive via an open port.
 
 // ── Keep service worker alive ─────────────────────────────────────────────────
-const port = chrome.runtime.connect({ name: "keepalive" });
+// Wrapped in try-catch: if the service worker isn't ready yet, don't crash the
+// entire content script — just skip the keepalive port.
+try {
+  chrome.runtime.connect({ name: "keepalive" });
+} catch (e) {
+  console.warn("[linkdm] keepalive connect failed (non-fatal):", e?.message);
+}
 
 // ── Message listener ─────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "PING") {
+    sendResponse({ ok: true });
+    return;
+  }
   if (message.type === "FETCH_COMMENTERS") {
-    fetchCommenters(message.postUrl).then(sendResponse);
+    fetchCommenters(message.postUrl).then(sendResponse).catch((err) => {
+      sendResponse({ error: err.message });
+    });
     return true; // keeps the message channel open for async response
   }
   if (message.type === "SEND_DM") {
-    sendDm(message.profileId, message.message).then(sendResponse);
+    sendDm(message.profileFsdUrn || message.profileId, message.message).then(sendResponse).catch((err) => {
+      sendResponse({ success: false, error: err.message });
+    });
     return true;
   }
   if (message.type === "REPLY_TO_COMMENT") {
-    replyToComment(message.commentUrn, message.message).then(sendResponse);
+    replyToComment(message.commentUrn, message.message).then(sendResponse).catch((err) => {
+      sendResponse({ success: false, error: err.message });
+    });
     return true;
   }
 });
 
 // ── Module-level cache ────────────────────────────────────────────────────────
 let cachedMyProfileUrn = null;
+let cachedMyFsdUrn = null;
 
 // ── CSRF token ────────────────────────────────────────────────────────────────
 function getCsrfToken() {
@@ -41,9 +58,8 @@ function extractCommentReplyUrn(entityUrn) {
   return `urn:li:comment:(${postUrn},${commentId})`;
 }
 
-// ── Get own profile URN ───────────────────────────────────────────────────────
-async function getMyProfileUrn() {
-  if (cachedMyProfileUrn) return cachedMyProfileUrn;
+// ── Get own profile URNs ──────────────────────────────────────────────────────
+async function fetchMyProfile() {
   const csrfToken = getCsrfToken();
   if (!csrfToken) return null;
   try {
@@ -57,12 +73,26 @@ async function getMyProfileUrn() {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const profile = (data.included || []).find(i => i.$type?.includes("MiniProfile"));
-    cachedMyProfileUrn = profile?.objectUrn ?? null;
-    return cachedMyProfileUrn;
+    return (data.included || []).find(i => i.$type?.includes("MiniProfile")) ?? null;
   } catch {
     return null;
   }
+}
+
+async function getMyProfileUrn() {
+  if (cachedMyProfileUrn) return cachedMyProfileUrn;
+  const profile = await fetchMyProfile();
+  cachedMyProfileUrn = profile?.objectUrn ?? null;
+  if (profile?.entityUrn) {
+    cachedMyFsdUrn = profile.entityUrn.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:");
+  }
+  return cachedMyProfileUrn;
+}
+
+async function getMyFsdProfileUrn() {
+  if (cachedMyFsdUrn) return cachedMyFsdUrn;
+  await getMyProfileUrn(); // populates both caches
+  return cachedMyFsdUrn;
 }
 
 // ── Post URN extraction ───────────────────────────────────────────────────────
@@ -109,8 +139,11 @@ function parseCommenters(data) {
     const profile = profilesByUrn[profileUrn];
     if (!profile) continue;
     seen.add(profileUrn);
+    // Derive fsd_profile URN from fs_miniProfile entityUrn (same encoded ID, different prefix)
+    const profileFsdUrn = profileUrn?.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:") ?? null;
     commenters.push({
       ...profile,
+      profileFsdUrn,
       // LinkedIn uses different text fields depending on API version/post type.
       // commentV2.text is the most reliable; comment.values[0].value is the fallback.
       commentText: item.commentV2?.text || item.comment?.values?.[0]?.value || item.commentary?.text || "",
@@ -165,15 +198,31 @@ async function fetchCommenters(postUrl) {
 }
 
 // ── Send DM via Voyager messaging API ─────────────────────────────────────────
-// Note: If LinkedIn changes their API shape, inspect a real DM send in Network
-// tab (filter for "voyagerMessagingDash") to see the current request format.
+// Uses the newer ?action=createMessage endpoint (the old ?action=create is dead).
+// Caller must pass profileId as urn:li:fsd_profile:XXX (not urn:li:member:XXX).
+// background.js passes profileFsdUrn which is forwarded here as profileId.
 async function sendDm(profileId, message) {
   const csrfToken = getCsrfToken();
   if (!csrfToken) return { success: false, error: "NO_CSRF_TOKEN" };
 
+  // Require fsd_profile URN — member URNs don't work with the new messaging API
+  if (!profileId?.startsWith("urn:li:fsd_profile:")) {
+    return { success: false, error: "NEED_FSD_PROFILE_URN_NOT_MEMBER_URN" };
+  }
+  const recipientFsdUrn = profileId;
+
+  // Get sender's fsd_profile URN
+  const senderFsdUrn = await getMyFsdProfileUrn();
+  if (!senderFsdUrn) return { success: false, error: "COULD_NOT_GET_SENDER_FSD_URN" };
+
+  // Look up conversationUrn via participant query
+  const convUrn = await findConversationUrn(csrfToken, senderFsdUrn, recipientFsdUrn);
+  if (!convUrn) return { success: false, error: "COULD_NOT_FIND_CONVERSATION_URN" };
+
+  // Send message via new endpoint
   try {
     const res = await fetch(
-      "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=create",
+      "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
       {
         method: "POST",
         credentials: "include",
@@ -184,26 +233,59 @@ async function sendDm(profileId, message) {
         },
         body: JSON.stringify({
           message: {
-            body: {
-              attributes: [],
-              text: message,
-            },
+            body: { attributes: [], text: message },
             renderContentUnions: [],
+            conversationUrn: convUrn,
+            originToken: crypto.randomUUID(),
           },
-          recipients: [profileId],
-          subject: "",
+          mailboxUrn: senderFsdUrn,
+          trackingId: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))),
+          dedupeByClientGeneratedToken: false,
         }),
       }
     );
 
     if (res.status === 401) return { success: false, error: "SESSION_EXPIRED" };
-    if (!res.ok) return { success: false, error: `HTTP_${res.status}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { success: false, error: `HTTP_${res.status}: ${body.slice(0, 200)}` };
+    }
 
-    console.log(`[linkdm] DM sent to ${profileId}`);
+    console.log(`[linkdm] DM sent to ${recipientFsdUrn}`);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+// ── Look up conversationUrn by recipient fsd_profile URN ─────────────────────
+async function findConversationUrn(csrfToken, senderFsdUrn, recipientFsdUrn) {
+  // Try the participant-based lookup (Restli 2.0 List encoding)
+  const encodedRecipient = encodeURIComponent(recipientFsdUrn);
+  const url = `https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerConversations` +
+    `?q=participants&recipientUrns=List(${encodedRecipient})`;
+  try {
+    const res = await fetch(url, {
+      credentials: "include",
+      headers: {
+        "csrf-token": csrfToken,
+        "x-restli-protocol-version": "2.0.0",
+        accept: "application/vnd.linkedin.normalized+json+2.1",
+      },
+    });
+    console.log(`[linkdm] Conversation lookup status: ${res.status}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    // The first element should be the conversation with this recipient
+    const conv = (data.elements || [])[0];
+    if (conv?.entityUrn) {
+      console.log(`[linkdm] Found conversationUrn: ${conv.entityUrn}`);
+      return conv.entityUrn;
+    }
+  } catch (err) {
+    console.warn("[linkdm] Conversation lookup error:", err.message);
+  }
+  return null;
 }
 
 // ── Reply to comment via Voyager feed API ─────────────────────────────────────
