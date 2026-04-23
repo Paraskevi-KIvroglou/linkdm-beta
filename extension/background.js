@@ -36,6 +36,113 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ── DM sender — runs in page context (world: "MAIN") ─────────────────────────
+// This function is serialised and injected into the LinkedIn tab via
+// chrome.scripting.executeScript. Running in MAIN world means it uses
+// LinkedIn's monkey-patched window.fetch, which adds the proprietary headers
+// their API requires (avoiding the 400 that clean fetch calls get).
+async function linkedInSendDm(recipientUrn, messageText) {
+  // ── helpers (must be self-contained — no closure access) ──────────────────
+  function csrf() {
+    const m = document.cookie.match(/JSESSIONID="?([^";]+)"?/);
+    return m ? m[1] : null;
+  }
+  function trackingId() {
+    return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  }
+  async function li(path, init) {
+    return fetch(`https://www.linkedin.com${path}`, {
+      credentials: "include",
+      ...init,
+      headers: {
+        "csrf-token": csrf(),
+        "x-restli-protocol-version": "2.0.0",
+        ...(init?.body ? { "content-type": "application/json" } : { accept: "application/vnd.linkedin.normalized+json+2.1" }),
+        ...(init?.headers ?? {}),
+      },
+    });
+  }
+
+  const token = csrf();
+  if (!token) return { success: false, error: "NO_CSRF" };
+
+  // Resolve recipient to fsd_profile URN if needed
+  let recipientFsdUrn = recipientUrn;
+  if (!recipientFsdUrn?.startsWith("urn:li:fsd_profile:")) {
+    if (recipientFsdUrn?.startsWith("urn:li:fs_miniProfile:")) {
+      recipientFsdUrn = recipientFsdUrn.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:");
+    } else {
+      // member URN: look up via profile API
+      const memberId = recipientFsdUrn?.match(/urn:li:member:(\d+)/)?.[1];
+      if (!memberId) return { success: false, error: `BAD_URN:${recipientUrn}` };
+      const r = await li(`/voyager/api/identity/profiles?memberIdentity=${memberId}`);
+      if (!r.ok) return { success: false, error: `PROFILE_LOOKUP_${r.status}` };
+      const d = await r.json();
+      const mp = (d.included || []).find(i => i.$type?.includes("MiniProfile"));
+      if (!mp?.entityUrn) return { success: false, error: "PROFILE_LOOKUP_NO_URN" };
+      recipientFsdUrn = mp.entityUrn.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:");
+    }
+  }
+
+  // Get sender fsd_profile URN
+  const meRes = await li("/voyager/api/me");
+  if (!meRes.ok) return { success: false, error: `ME_${meRes.status}` };
+  const meData = await meRes.json();
+  const mp = (meData.included || []).find(i => i.$type?.includes("MiniProfile"));
+  if (!mp?.entityUrn) return { success: false, error: "ME_NO_URN" };
+  const senderFsdUrn = mp.entityUrn.replace("urn:li:fs_miniProfile:", "urn:li:fsd_profile:");
+
+  // Check for existing conversation
+  const enc = encodeURIComponent(recipientFsdUrn);
+  const convRes = await li(`/voyager/api/voyagerMessagingDashMessengerConversations?q=participants&recipientUrns=List(${enc})`);
+  const convData = convRes.ok ? await convRes.json() : null;
+  const convUrn = (convData?.elements || [])[0]?.entityUrn ?? null;
+
+  if (convUrn) {
+    // Existing conversation — send via createMessage
+    const r = await li("/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage", {
+      method: "POST",
+      body: JSON.stringify({
+        message: {
+          body: { attributes: [], text: messageText },
+          renderContentUnions: [],
+          conversationUrn: convUrn,
+          originToken: crypto.randomUUID(),
+        },
+        mailboxUrn: senderFsdUrn,
+        trackingId: trackingId(),
+        dedupeByClientGeneratedToken: false,
+      }),
+    });
+    if (!r.ok) {
+      const b = await r.text().catch(() => "");
+      return { success: false, error: `createMessage_${r.status}: ${b.slice(0, 200)}` };
+    }
+    return { success: true };
+  } else {
+    // No conversation yet — create + send in one call
+    const r = await li("/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation", {
+      method: "POST",
+      body: JSON.stringify({
+        mailboxUrn: senderFsdUrn,
+        message: {
+          body: { attributes: [], text: messageText },
+          renderContentUnions: [],
+          originToken: crypto.randomUUID(),
+        },
+        recipients: [recipientFsdUrn],
+        trackingId: trackingId(),
+        dedupeByClientGeneratedToken: false,
+      }),
+    });
+    if (!r.ok) {
+      const b = await r.text().catch(() => "");
+      return { success: false, error: `createConversation_${r.status}: ${b.slice(0, 200)}` };
+    }
+    return { success: true };
+  }
+}
+
 // ── Content script health check + auto-inject ────────────────────────────────
 // Returns true if the content script is reachable in tabId.
 // If not reachable, injects content.js programmatically (handles tabs that were
@@ -206,17 +313,20 @@ async function runCampaignLoop() {
     const next = eligible[0];
     console.log(`[linkdm] Sending DM to ${next.profileName} | fsdUrn=${next.profileFsdUrn ?? "MISSING"} | profileId=${next.profileId}`);
 
-    // Ask content script to send the DM
+    // Send DM by running directly in the page's JS context (world: "MAIN").
+    // This uses LinkedIn's own monkey-patched fetch, which automatically adds
+    // the proprietary headers their API requires — solving the 400 problem.
     let dmResult;
     try {
-      dmResult = await chrome.tabs.sendMessage(linkedinTab.id, {
-        type: "SEND_DM",
-        profileId: next.profileId,
-        profileFsdUrn: next.profileFsdUrn, // fsd_profile URN needed for new messaging API
-        message: campaign.messageTemplate,
+      const execResults = await chrome.scripting.executeScript({
+        target: { tabId: linkedinTab.id },
+        world: "MAIN",
+        func: linkedInSendDm,
+        args: [next.profileFsdUrn || next.profileId, campaign.messageTemplate],
       });
+      dmResult = execResults?.[0]?.result ?? { success: false, error: "SCRIPT_EXEC_NO_RESULT" };
     } catch (err) {
-      console.error("[linkdm] Failed to send DM:", err?.message ?? String(err));
+      console.error("[linkdm] executeScript failed:", err?.message ?? String(err));
       dmResult = { success: false, error: err?.message ?? String(err) };
     }
 
