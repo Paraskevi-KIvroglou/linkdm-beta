@@ -5,7 +5,7 @@
 // ── Configuration ─────────────────────────────────────────────────────────────
 // This is your Convex HTTP site URL — different from NEXT_PUBLIC_CONVEX_URL.
 // Replace .convex.cloud with .convex.site in your deployment URL.
-const CONVEX_SITE_URL = "https://utmost-lemur-208.eu-west-1.convex.site";
+const CONVEX_SITE_URL = "https://ideal-squid-646.convex.site";
 
 // ── Startup: register alarm ───────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(setupAlarms);
@@ -367,6 +367,7 @@ async function runCampaignLoop() {
     }
     const body = await res.json();
     campaigns = body.campaigns;
+    console.log(`[linkdm] Loaded ${campaigns?.length ?? 0} campaign(s) from Convex`);
   } catch (err) {
     console.error("[linkdm] Failed to fetch campaigns:", err);
     return;
