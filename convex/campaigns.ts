@@ -1,4 +1,4 @@
-import { mutation, query, internalQuery } from "./_generated/server";
+import { mutation, query, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -208,5 +208,40 @@ export const mergeDuplicateAccounts = mutation({
     }
 
     return { merged };
+  },
+});
+
+/**
+ * Returns all active campaigns across all users.
+ * Called by cloudCampaignLoop to find work to do.
+ * Capped at 500 to avoid runaway queries.
+ */
+export const listAllActive = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("campaigns")
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .take(500);
+  },
+});
+
+/**
+ * Pauses all active campaigns for a userId.
+ * Called by cloudCampaignLoop when a session expires.
+ * Does not require auth — internal only.
+ */
+export const pauseAllForUser = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
+    const campaigns = await ctx.db
+      .query("campaigns")
+      .withIndex("by_userId_and_status", (q) =>
+        q.eq("userId", userId).eq("status", "active")
+      )
+      .collect();
+    for (const c of campaigns) {
+      await ctx.db.patch(c._id, { status: "paused" });
+    }
   },
 });
