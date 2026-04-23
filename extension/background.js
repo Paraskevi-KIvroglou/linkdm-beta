@@ -202,26 +202,40 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
     // Not connected — try sending a connection request with the message as the note.
     // LinkedIn caps connection notes at 300 characters.
     const note = messageText.slice(0, 300);
+    const errors = [];
 
-    // Try newer Dash relationship API first
-    const invR = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
+    // Attempt 1: Dash relationships API (current format as of 2024)
+    const invR1 = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
+      method: "POST",
+      body: JSON.stringify({
+        invitee: {
+          "com.linkedin.voyager.relationships.dash.member.MemberRelationship": {
+            memberUrn: recipientFsdUrn,
+          },
+        },
+        customMessage: note,
+      }),
+    });
+    if (invR1.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
+    errors.push(`dashV2_${invR1.status}`);
+
+    // Attempt 2: Dash relationships API (older body shape)
+    const invR2 = await li("/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create", {
       method: "POST",
       body: JSON.stringify({
         inviteeUrn: recipientFsdUrn,
         customMessage: note,
-        invitationType: "CONNECTION",
       }),
     });
-    if (invR.ok) {
-      return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-    }
-    const invB = await invR.text().catch(() => "");
+    if (invR2.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
+    errors.push(`dashV1_${invR2.status}`);
 
-    // Fallback: legacy normInvitations API
+    // Attempt 3: legacy normInvitations API (public profile ID)
     const publicId2 = profileUrl?.match(/\/in\/([^/?#]+)/)?.[1];
     if (publicId2) {
-      const legInvR = await li("/voyager/api/growth/normInvitations", {
+      const invR3 = await li("/voyager/api/growth/normInvitations", {
         method: "POST",
+        redirect: "follow",
         body: JSON.stringify({
           invitee: {
             "com.linkedin.voyager.growth.invitation.InviteeProfile": {
@@ -232,20 +246,13 @@ async function linkedInSendDm(recipientUrn, messageText, profileUrl, memberUrn) 
           message: note,
         }),
       });
-      if (legInvR.ok) {
-        return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
-      }
-      const legInvB = await legInvR.text().catch(() => "");
-      return {
-        success: false,
-        error: `CONNECT_REQUEST_FAILED: dash_${invR.status} legacy_${legInvR.status}: ${legInvB.slice(0, 100)}`,
-        connectionStatus: "NOT_CONNECTED",
-      };
+      if (invR3.ok) return { success: true, method: "connection_request", connectionStatus: "NOT_CONNECTED" };
+      errors.push(`legacy_${invR3.status}`);
     }
 
     return {
       success: false,
-      error: `CONNECT_REQUEST_FAILED: dash_${invR.status}: ${invB.slice(0, 150)}`,
+      error: `CONNECT_REQUEST_FAILED: ${errors.join(" ")}`,
       connectionStatus: "NOT_CONNECTED",
     };
   }
