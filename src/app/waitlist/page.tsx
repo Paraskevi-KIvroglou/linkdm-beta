@@ -47,7 +47,7 @@ export default function WaitlistPage() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             required
-            className="border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-300 rounded-lg px-4 py-2 text-sm text-black font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           {error && <p className="text-red-500 text-sm">{error}</p>}
           <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">

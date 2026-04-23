@@ -142,7 +142,7 @@ export default function CampaignsPage() {
                   onChange={(e) => setPostUrl(e.target.value)}
                   required
                   placeholder="https://www.linkedin.com/feed/update/urn:li:activity:..."
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-black font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -155,7 +155,7 @@ export default function CampaignsPage() {
                   required
                   rows={3}
                   placeholder="Hey, I saw your comment on my post — would love to connect!"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-black font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
               <div>
@@ -167,7 +167,7 @@ export default function CampaignsPage() {
                   onChange={(e) => setReplyTemplate(e.target.value)}
                   rows={2}
                   placeholder="e.g. Thanks for engaging! I sent you a DM 📩"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-black font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
                 <p className="text-xs text-gray-400 mt-1">If set, the extension will reply to the commenter's post after sending the DM</p>
               </div>
@@ -181,7 +181,7 @@ export default function CampaignsPage() {
                     value={keywordFilter}
                     onChange={(e) => setKeywordFilter(e.target.value)}
                     placeholder="e.g. interested"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-black font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-400 mt-1">Only DM commenters whose comment contains this word</p>
                 </div>
@@ -195,7 +195,7 @@ export default function CampaignsPage() {
                     onChange={(e) => setDailyLimit(e.target.value)}
                     min="1"
                     max="80"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-black font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-400 mt-1">Max 20 recommended to stay safe</p>
                 </div>
