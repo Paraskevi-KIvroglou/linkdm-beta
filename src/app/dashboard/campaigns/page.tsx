@@ -3,13 +3,21 @@
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 
 export default function CampaignsPage() {
   const campaigns = useQuery(api.campaigns.listByUser);
   const createCampaign = useMutation(api.campaigns.create);
   const updateStatus = useMutation(api.campaigns.updateStatus);
+  const mergeDuplicates = useMutation(api.campaigns.mergeDuplicateAccounts);
+
+  // On first render, merge any campaigns stored under duplicate user records
+  // that were created by the auth bug (new userId per login).
+  useEffect(() => {
+    mergeDuplicates().catch(() => {/* silent — non-critical */});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [showForm, setShowForm] = useState(false);
   const [postUrl, setPostUrl] = useState("");
