@@ -8,7 +8,6 @@ import Link from "next/link";
 
 export default function CampaignsPage() {
   const campaigns = useQuery(api.campaigns.listByUser);
-  const debug = useQuery(api.debug.whoAmI);
   const createCampaign = useMutation(api.campaigns.create);
   const updateStatus = useMutation(api.campaigns.updateStatus);
   const mergeDuplicates = useMutation(api.campaigns.mergeDuplicateAccounts);
@@ -299,27 +298,6 @@ export default function CampaignsPage() {
           </div>
         )}
       </div>
-
-      {/* Temporary debug panel — remove after diagnosis */}
-      {debug !== undefined && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#1e1e1e", color: "#d4d4d4", fontSize: 11, padding: "8px 12px", fontFamily: "monospace", maxHeight: 180, overflowY: "auto", zIndex: 9999 }}>
-          <strong style={{ color: "#4ec9b0" }}>DEBUG</strong>{" "}
-          userId: <span style={{ color: "#ce9178" }}>{debug.userId ?? "null"}</span>{" "}
-          | email: <span style={{ color: "#ce9178" }}>{debug.user?.email ?? "none"}</span>{" "}
-          | users with this email: <span style={{ color: "#9cdcfe" }}>{debug.allEmailUsers.length}</span>{" "}
-          | campaigns found: <span style={{ color: "#9cdcfe" }}>{debug.allCampaigns.length}</span>
-          {debug.allEmailUsers.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              {debug.allEmailUsers.map((u) => (
-                <div key={u._id}>user {u._id}: {debug.allCampaigns.filter(c => c.userId === u._id).length} campaign(s)</div>
-              ))}
-            </div>
-          )}
-          {debug.allCampaigns.map((c) => (
-            <div key={c._id} style={{ color: "#6a9955" }}>campaign {c._id} → userId {c.userId} | {c.postUrl.slice(0, 60)}</div>
-          ))}
-        </div>
-      )}
     </main>
   );
 }
