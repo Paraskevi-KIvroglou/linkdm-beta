@@ -109,8 +109,20 @@ http.route({
     }
 
     // Fix 2: Validate required POST body fields
-    const { campaignId, profileId, profileName, profileUrl, status, errorMessage, connectionStatus } = body;
+    const {
+      campaignId,
+      profileId,
+      profileName,
+      profileUrl,
+      status,
+      errorMessage,
+      connectionStatus,
+      commentText,
+      replyStatus,
+      replyError,
+    } = body;
     const VALID_STATUS = new Set(["sent", "failed", "skipped"]);
+    const VALID_REPLY_STATUS = new Set(["sent", "failed", "not_attempted"]);
 
     if (
       typeof campaignId !== "string" || !campaignId ||
@@ -143,6 +155,12 @@ http.route({
       status: status as "sent" | "failed" | "skipped",
       errorMessage:     typeof errorMessage === "string" ? errorMessage.slice(0, 500) : undefined,
       connectionStatus: typeof connectionStatus === "string" ? connectionStatus : undefined,
+      commentText:      typeof commentText === "string" ? commentText.slice(0, 1000) : undefined,
+      replyStatus:
+        typeof replyStatus === "string" && VALID_REPLY_STATUS.has(replyStatus)
+          ? (replyStatus as "sent" | "failed" | "not_attempted")
+          : undefined,
+      replyError:       typeof replyError === "string" ? replyError.slice(0, 500) : undefined,
     });
 
     return new Response(JSON.stringify({ success: true }), {

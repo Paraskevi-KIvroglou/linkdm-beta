@@ -62,8 +62,18 @@ export default function ActivityPage() {
                   >
                     {log.profileName}
                   </a>
+                  {log.commentText && (
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                      &ldquo;{log.commentText}&rdquo;
+                    </p>
+                  )}
                   {log.status === "failed" && log.errorMessage && (
                     <p className="text-xs text-red-500 mt-0.5">{log.errorMessage}</p>
+                  )}
+                  {log.replyStatus === "failed" && (
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      Reply failed{log.replyError ? `: ${log.replyError}` : ""}
+                    </p>
                   )}
                 </div>
                 <div className="shrink-0 text-right">

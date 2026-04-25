@@ -15,6 +15,15 @@ export const logDm = internalMutation({
     ),
     errorMessage:     v.optional(v.string()),
     connectionStatus: v.optional(v.string()),
+    commentText:      v.optional(v.string()),
+    replyStatus: v.optional(
+      v.union(
+        v.literal("sent"),
+        v.literal("failed"),
+        v.literal("not_attempted")
+      )
+    ),
+    replyError:       v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("dmLog", {

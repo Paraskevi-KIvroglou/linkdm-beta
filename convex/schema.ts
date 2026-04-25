@@ -45,6 +45,15 @@ export default defineSchema({
     sentAt: v.number(),
     errorMessage:     v.optional(v.string()),
     connectionStatus: v.optional(v.string()),
+    commentText:      v.optional(v.string()),
+    replyStatus: v.optional(
+      v.union(
+        v.literal("sent"),
+        v.literal("failed"),
+        v.literal("not_attempted")
+      )
+    ),
+    replyError:       v.optional(v.string()),
   })
     .index("by_campaignId_and_profileId", ["campaignId", "profileId"])
     .index("by_campaignId_and_status_and_sentAt", [

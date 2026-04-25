@@ -481,6 +481,32 @@ async function runCampaignLoop() {
       await chrome.storage.local.set({ failedProfiles });
     }
 
+    // Reply to the comment if a reply template is configured.
+    // Done before logging so the dmLog row reflects the reply outcome.
+    let replyStatus = "not_attempted";
+    let replyError;
+    if (status === "sent" && campaign.replyTemplate && next.commentUrn) {
+      try {
+        const replyResult = await chrome.tabs.sendMessage(linkedinTab.id, {
+          type: "REPLY_TO_COMMENT",
+          commentUrn: next.commentUrn,
+          message: campaign.replyTemplate,
+        });
+        if (replyResult?.success) {
+          replyStatus = "sent";
+          console.log(`[linkdm] Comment reply sent for ${next.profileName}`);
+        } else {
+          replyStatus = "failed";
+          replyError = replyResult?.error ?? "UNKNOWN";
+          console.warn(`[linkdm] Comment reply failed for ${next.profileName}:`, replyError);
+        }
+      } catch (err) {
+        replyStatus = "failed";
+        replyError = err?.message ?? String(err);
+        console.warn("[linkdm] Could not send comment reply:", replyError);
+      }
+    }
+
     // Report result to Convex backend
     try {
       const logRes = await fetch(`${CONVEX_SITE_URL}/api/extension/dmLog`, {
@@ -497,6 +523,9 @@ async function runCampaignLoop() {
           status,
           errorMessage:     dmResult?.error,
           connectionStatus: dmResult?.connectionStatus,
+          commentText:      next.commentText,
+          replyStatus,
+          replyError,
         }),
       });
       if (!logRes.ok) {
@@ -504,24 +533,6 @@ async function runCampaignLoop() {
       }
     } catch (err) {
       console.error("[linkdm] Failed to log DM to Convex:", err);
-    }
-
-    // Reply to the comment if a reply template is configured
-    if (status === "sent" && campaign.replyTemplate && next.commentUrn) {
-      try {
-        const replyResult = await chrome.tabs.sendMessage(linkedinTab.id, {
-          type: "REPLY_TO_COMMENT",
-          commentUrn: next.commentUrn,
-          message: campaign.replyTemplate,
-        });
-        if (replyResult?.success) {
-          console.log(`[linkdm] Comment reply sent for ${next.profileName}`);
-        } else {
-          console.warn(`[linkdm] Comment reply failed for ${next.profileName}:`, replyResult?.error);
-        }
-      } catch (err) {
-        console.warn("[linkdm] Could not send comment reply:", err?.message ?? String(err));
-      }
     }
 
     // Schedule next DM: random 30–90 second delay
