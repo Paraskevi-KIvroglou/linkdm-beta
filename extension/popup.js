@@ -167,6 +167,74 @@ async function renderFailedList() {
 
 // ── Session sync ──────────────────────────────────────────────────────────────
 
+// These must match the values in background.js and Convex env vars.
+const SYNC_CONVEX_SITE_URL = "https://utmost-lemur-208.eu-west-1.convex.site";
+const SYNC_HMAC_SECRET = "4efe5984dd50cc5242cb75b68dbc4a06f93fe4764a1e8adf377c0a32332d5cf9";
+
+/**
+ * Reads LinkedIn cookies and POSTs them to Convex directly from the popup page.
+ * Avoids going through the background service worker (which can be killed mid-flight).
+ */
+async function syncLinkedInSessionFromPopup(extensionToken) {
+  try {
+    const [liAtCookie, jsessionCookie] = await Promise.all([
+      chrome.cookies.get({ url: "https://www.linkedin.com", name: "li_at" }),
+      chrome.cookies.get({ url: "https://www.linkedin.com", name: "JSESSIONID" }),
+    ]);
+
+    if (!liAtCookie) return { success: false, error: "li_at cookie not found — please log in to LinkedIn first" };
+    if (!jsessionCookie) return { success: false, error: "JSESSIONID cookie not found — please log in to LinkedIn first" };
+
+    const liAt = liAtCookie.value;
+    const jsessionId = jsessionCookie.value;
+
+    // Build HMAC-SHA256 signature
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw", enc.encode(SYNC_HMAC_SECRET),
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    );
+    const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(`timestamp=${timestamp}`));
+    const signature = Array.from(new Uint8Array(sigBuf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    let res;
+    try {
+      res = await fetch(`${SYNC_CONVEX_SITE_URL}/api/extension/sync-session`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Authorization": `Bearer ${extensionToken}`,
+          "X-Timestamp": timestamp,
+          "X-Signature": signature,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ liAt, jsessionId, userAgent: navigator.userAgent }),
+      });
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      if (fetchErr.name === "AbortError") {
+        return { success: false, error: "Connection timed out — please check your internet and try again." };
+      }
+      throw fetchErr;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { success: false, error: `Server error ${res.status}: ${text.slice(0, 200)}` };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message ?? "Unknown error" };
+  }
+}
+
 function setSessionCard(type, title, detail) {
   sessionCard.className = `card ${type}`;
   sessionTitle.textContent = title;
@@ -196,12 +264,22 @@ if (syncBtn) {
     syncBtn.disabled = true;
     syncBtn.textContent = "Syncing…";
     setSessionCard("warn", "Syncing LinkedIn session…", "");
-    const result = await chrome.runtime.sendMessage({ type: "SYNC_LINKEDIN_SESSION" });
-    if (result?.success) {
+
+    const { token } = await chrome.storage.local.get("token");
+    if (!token) {
+      setSessionCard("error", "❌ Sync failed", "Extension not connected — paste your token first");
+      syncBtn.disabled = false;
+      syncBtn.textContent = "🔄 Sync LinkedIn session";
+      return;
+    }
+
+    // Run sync directly in popup (avoids service worker lifecycle issues)
+    const result = await syncLinkedInSessionFromPopup(token);
+    if (result.success) {
       await chrome.storage.local.set({ sessionStatus: "active", sessionSyncedAt: Date.now() });
       setSessionCard("ok", "✅ Session synced!", "Cloud campaigns are now active.");
     } else {
-      setSessionCard("error", "❌ Sync failed", result?.error ?? "Unknown error");
+      setSessionCard("error", "❌ Sync failed", result.error ?? "Unknown error");
     }
     syncBtn.disabled = false;
     syncBtn.textContent = "🔄 Sync LinkedIn session";
