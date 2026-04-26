@@ -161,14 +161,47 @@ async function findConvUrn(
 }
 
 async function sendDm(
-  recipFsdUrn: string, senderFsdUrn: string, message: string,
+  recipFsdUrn: string, recipMemberUrn: string | null, senderFsdUrn: string, message: string,
   liAt: string, js: string, ua: string
 ): Promise<{ success: boolean; error?: string; sessionExpired?: boolean }> {
+  const trackingId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+
+  // ── Step 1: legacy API (most reliable for 1st connections) ───────────────────
+  const memberId = recipMemberUrn?.match(/urn:li:member:(\d+)/)?.[1] ?? null;
+  let legacyStatus: number | null = null;
+  if (memberId) {
+    const legacyRes = await liPost(
+      "/voyager/api/messaging/conversations?action=create",
+      {
+        keyVersion: "LEGACY_INBOX",
+        conversationCreate: {
+          eventCreate: {
+            value: {
+              "com.linkedin.voyager.messaging.create.MessageCreate": {
+                attributedBody: { text: message, attributes: [] },
+                attachments: [],
+              },
+            },
+          },
+          recipients: [`urn:li:member:${memberId}`],
+          subtype: "MEMBER_TO_MEMBER",
+        },
+      },
+      liAt, js, ua
+    );
+    if (legacyRes.ok) return { success: true };
+    if (legacyRes.status === 401) {
+      return { success: false, sessionExpired: true, error: "SESSION_legacy_401" };
+    }
+    legacyStatus = legacyRes.status;
+    // 403 or other → fall through to Dash API
+  }
+
+  // ── Step 2: Dash API — find existing conv or create new one ─────────────────
   const { convUrn, sessionExpired: convLookupExpired } = await findConvUrn(recipFsdUrn, liAt, js, ua);
   if (convLookupExpired) {
     return { success: false, sessionExpired: true, error: "SESSION_conv_lookup" };
   }
-  const trackingId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 
   let res;
   if (convUrn) {
@@ -195,7 +228,10 @@ async function sendDm(
   if (res.status === 401 || res.status === 403) {
     return { success: false, sessionExpired: true, error: `SESSION_${res.status}` };
   }
-  if (!res.ok) return { success: false, error: `DM_${res.status}: ${res.text.slice(0, 200)}` };
+  if (!res.ok) {
+    const legacyTag = legacyStatus !== null ? ` | legacy_${legacyStatus}` : "";
+    return { success: false, error: `DM_${res.status}: ${res.text.slice(0, 200)}${legacyTag}` };
+  }
   return { success: true };
 }
 
@@ -310,7 +346,7 @@ export const cloudCampaignLoop = internalAction({
             .replace(/\{\{name\}\}/gi, commenter.profileName);
 
           const dmResult = await sendDm(
-            commenter.profileFsdUrn, senderFsdUrn, messageText, liAt, jsessionId, ua
+            commenter.profileFsdUrn, commenter.profileId, senderFsdUrn, messageText, liAt, jsessionId, ua
           );
 
           await ctx.runMutation(internal.dmLog.logDm, {
