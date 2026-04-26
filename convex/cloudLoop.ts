@@ -208,8 +208,27 @@ async function sendDm(
   if (res.status === 401 || res.status === 403) {
     return { success: false, sessionExpired: true, error: `SESSION_${res.status}` };
   }
-  if (!res.ok) return { success: false, error: `DM_${res.status}: ${res.text.slice(0, 200)}` };
-  return { success: true };
+  if (res.ok) return { success: true };
+
+  // ── DM failed — fall back to connection request with message as note ─────────
+  const connRes = await liPost(
+    "/voyager/api/voyagerRelationshipsDashMemberRelationships?action=create",
+    {
+      invitee: {
+        "com.linkedin.voyager.relationships.dash.member.MemberRelationship": {
+          memberUrn: recipFsdUrn,
+        },
+      },
+      customMessage: message.slice(0, 300),
+    },
+    liAt, js, ua
+  );
+  if (connRes.ok) return { success: true, method: "connection_request" } as { success: boolean; error?: string; sessionExpired?: boolean };
+  if (connRes.status === 401) return { success: false, sessionExpired: true, error: "SESSION_conn_req_401" };
+  // 400 = already connected but inbox is private; anything else = truly blocked
+  const dmErr = `DM_${res.status}: ${res.text.slice(0, 150)}`;
+  const connErr = connRes.status === 400 ? "CONNECTED_inbox_private" : `conn_req_${connRes.status}`;
+  return { success: false, error: `${dmErr} | ${connErr}` };
 }
 
 // ── Main action ───────────────────────────────────────────────────────────────
