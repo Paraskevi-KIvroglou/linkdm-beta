@@ -160,44 +160,20 @@ async function findConvUrn(
   };
 }
 
+// Generate 16 random binary bytes for trackingId — must match LinkedIn's format
+function randomTrackingId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return String.fromCharCode(...bytes);
+}
+
 async function sendDm(
-  recipFsdUrn: string, recipMemberUrn: string | null, senderFsdUrn: string, message: string,
+  recipFsdUrn: string, senderFsdUrn: string, message: string,
   liAt: string, js: string, ua: string
 ): Promise<{ success: boolean; error?: string; sessionExpired?: boolean }> {
-  const trackingId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const trackingId = randomTrackingId();
 
-  // ── Step 1: legacy API (most reliable for 1st connections) ───────────────────
-  const memberId = recipMemberUrn?.match(/urn:li:member:(\d+)/)?.[1] ?? null;
-  let legacyStatus: number | null = null;
-  if (memberId) {
-    const legacyRes = await liPost(
-      "/voyager/api/messaging/conversations?action=create",
-      {
-        keyVersion: "LEGACY_INBOX",
-        conversationCreate: {
-          eventCreate: {
-            value: {
-              "com.linkedin.voyager.messaging.create.MessageCreate": {
-                attributedBody: { text: message, attributes: [] },
-                attachments: [],
-              },
-            },
-          },
-          recipients: [`urn:li:member:${memberId}`],
-          subtype: "MEMBER_TO_MEMBER",
-        },
-      },
-      liAt, js, ua
-    );
-    if (legacyRes.ok) return { success: true };
-    if (legacyRes.status === 401) {
-      return { success: false, sessionExpired: true, error: "SESSION_legacy_401" };
-    }
-    legacyStatus = legacyRes.status;
-    // 403 or other → fall through to Dash API
-  }
-
-  // ── Step 2: Dash API — find existing conv or create new one ─────────────────
+  // ── Try to find an existing conversation ─────────────────────────────────────
   const { convUrn, sessionExpired: convLookupExpired } = await findConvUrn(recipFsdUrn, liAt, js, ua);
   if (convLookupExpired) {
     return { success: false, sessionExpired: true, error: "SESSION_conv_lookup" };
@@ -205,6 +181,7 @@ async function sendDm(
 
   let res;
   if (convUrn) {
+    // Existing conversation — send into it via conversationUrn
     res = await liPost(
       "/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
       {
@@ -214,12 +191,15 @@ async function sendDm(
       liAt, js, ua
     );
   } else {
+    // New conversation — use hostRecipientUrns (same endpoint, no conversationUrn)
     res = await liPost(
-      "/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation",
+      "/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
       {
-        mailboxUrn: senderFsdUrn,
         message: { body: { attributes: [], text: message }, renderContentUnions: [], originToken: crypto.randomUUID() },
-        recipients: [recipFsdUrn], trackingId, dedupeByClientGeneratedToken: false,
+        mailboxUrn: senderFsdUrn,
+        trackingId,
+        dedupeByClientGeneratedToken: false,
+        hostRecipientUrns: [recipFsdUrn],
       },
       liAt, js, ua
     );
@@ -228,10 +208,7 @@ async function sendDm(
   if (res.status === 401 || res.status === 403) {
     return { success: false, sessionExpired: true, error: `SESSION_${res.status}` };
   }
-  if (!res.ok) {
-    const legacyTag = legacyStatus !== null ? ` | legacy_${legacyStatus}` : "";
-    return { success: false, error: `DM_${res.status}: ${res.text.slice(0, 200)}${legacyTag}` };
-  }
+  if (!res.ok) return { success: false, error: `DM_${res.status}: ${res.text.slice(0, 200)}` };
   return { success: true };
 }
 
@@ -346,7 +323,7 @@ export const cloudCampaignLoop = internalAction({
             .replace(/\{\{name\}\}/gi, commenter.profileName);
 
           const dmResult = await sendDm(
-            commenter.profileFsdUrn, commenter.profileId, senderFsdUrn, messageText, liAt, jsessionId, ua
+            commenter.profileFsdUrn, senderFsdUrn, messageText, liAt, jsessionId, ua
           );
 
           await ctx.runMutation(internal.dmLog.logDm, {
